@@ -21,7 +21,22 @@ class Settings(BaseSettings):
     app_name: str = "UniversalAPI"
     app_env: str = "development"
     debug: bool = True
+
+    # Logging
     log_level: str = "INFO"
+    log_format: str = "auto"  # auto (based on app_env), console, or json
+    logs_dir: str = "./logs"
+    log_to_file: bool = True  # Always log to files
+    log_file_max_bytes: int = 10 * 1024 * 1024  # 10MB
+    log_file_backup_count: int = 5
+
+    # Shutdown
+    shutdown_timeout_seconds: int = 30  # Kubernetes standard grace period
+
+    # Database Health
+    require_migrations_on_startup: bool = True
+    """If True, application won't start if database migrations are not up to date.
+    If False, only logs a warning. Default: True for maximum safety."""
 
     # Database
     database_url: str = "postgresql+asyncpg://universalapi:universalapi_dev@localhost:5432/universalapi"

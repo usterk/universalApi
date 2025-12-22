@@ -1,0 +1,16 @@
+# UniversalAPI Local Development Procfile
+# Run with: make start-local (or: cd backend && poetry run honcho start -f ../Procfile.local)
+#
+# This starts all services needed for local development:
+# - Docker (PostgreSQL + Redis)
+# - FastAPI backend
+# - Vite frontend
+# - Celery worker + beat
+#
+# NOTE: Honcho runs from backend/ directory, so paths are relative to backend/
+
+docker: cd .. && docker compose up
+backend: sh -c "poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 2>&1 | tee -a logs/backend.log"
+frontend: sh -c "cd ../frontend && npm run dev 2>&1 | tee -a logs/frontend.log"
+celery_worker: sh -c "poetry run celery -A app.core.queue.celery_app worker 2>&1 | tee -a logs/celery_worker.log"
+celery_beat: sh -c "poetry run celery -A app.core.queue.celery_app beat 2>&1 | tee -a logs/celery_beat.log"

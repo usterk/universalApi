@@ -1,9 +1,12 @@
 import { createContext, useContext, ReactNode, useEffect } from 'react'
-import { useTimelineEventsSingleton } from '@/core/hooks/useSSESingleton'
+import { useTimelineEventsSingleton, ConnectionState } from '@/core/hooks/useSSESingleton'
 import type { TimelineJob } from '@/core/hooks/useSSE'
+import { log } from '@/core/utils/logger'
 
 interface SSEContextValue {
   isConnected: boolean
+  connectionState: ConnectionState
+  reconnectAttempts: number
   jobs: Map<string, TimelineJob>
   activeJobs: TimelineJob[]
   recentJobs: TimelineJob[]
@@ -18,9 +21,9 @@ export function SSEProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     providerCount++
     const currentId = providerCount
-    console.log(`[SSEProvider #${currentId}] Mounted`)
+    log.debug('sse_provider_mounted', { provider_id: currentId })
     return () => {
-      console.log(`[SSEProvider #${currentId}] Unmounted`)
+      log.debug('sse_provider_unmounted', { provider_id: currentId })
     }
   }, [])
 

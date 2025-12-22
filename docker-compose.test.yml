@@ -1,0 +1,37 @@
+# Docker Compose for Test Environment
+# Uses different ports to avoid conflicts with development environment
+#
+# Start: make test-db-up
+# Stop: make test-db-down
+
+name: universalapi-test
+
+services:
+  postgres_test:
+    image: pgvector/pgvector:pg16
+    container_name: universalapi_postgres_test
+    environment:
+      POSTGRES_USER: universalapi_test
+      POSTGRES_PASSWORD: universalapi_test
+      POSTGRES_DB: universalapi_test
+    ports:
+      - "5433:5432"  # Different port than dev (5432)
+    tmpfs:
+      - /var/lib/postgresql/data  # Use tmpfs for faster tests
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U universalapi_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  redis_test:
+    image: redis:7-alpine
+    container_name: universalapi_redis_test
+    ports:
+      - "6380:6379"  # Different port than dev (6379)
+    command: redis-server --save ""  # No persistence for tests
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 10

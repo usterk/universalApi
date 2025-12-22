@@ -12,84 +12,132 @@ UniversalAPI is a plugin-based data processing platform built with FastAPI (back
 
 ### First-Time Setup
 ```bash
-# Start infrastructure (PostgreSQL + Redis)
-make dev
+# Automated setup (RECOMMENDED) - does everything in one command
+make dev-setup        # Start infrastructure + install deps + migrate + create admin user
 
-# Install dependencies
-make backend-install   # Poetry install
-make frontend-install  # npm install
+# Or manual setup:
+make infra-up         # Start Docker (PostgreSQL + Redis)
+make dev-install      # Install both backend and frontend dependencies
+make db-migrate       # Run database migrations
 
-# Run migrations
-make migrate
-
-# Create admin user (credentials: admin@example.com / admin123)
-docker exec -i $(docker ps -q -f name=postgres) psql -U universalapi -d universalapi <<EOF
-INSERT INTO users (id, email, hashed_password, full_name, is_active, is_superuser, role_id, created_at, updated_at)
-VALUES (
-  gen_random_uuid(),
-  'admin@example.com',
-  '\$2b\$12\$LQv3c1yqBWVHxkd0LHAkCOYz6TtxMQJqhN8/LewY5GyKuL6oG7K6i',
-  'Admin User',
-  true,
-  true,
-  (SELECT id FROM roles WHERE name = 'admin' LIMIT 1),
-  NOW(),
-  NOW()
-);
-EOF
+# Admin credentials (created by dev-setup):
+# Email: admin@example.com
+# Password: admin123
 ```
 
 ### Daily Development
-```bash
-# Start all services
-make dev              # Start Docker (PostgreSQL + Redis)
-make backend-run      # Run FastAPI dev server (http://localhost:8000)
-make frontend-run     # Run Vite dev server (http://localhost:5173)
-make celery           # Run Celery worker for background tasks
 
-# API docs available at: http://localhost:8000/api/docs
+**Primary Mode: Honcho (RECOMMENDED)**
+```bash
+make start-all        # Start everything in background (RECOMMENDED)
+                      # - Starts all services
+                      # - Shows status (what started, what didn't)
+                      # - Displays log locations
+                      # - Returns control to terminal
+make restart-all      # Restart all services ~8s
+make stop-all         # Stop everything
+make status           # Show detailed status
+make logs             # View logs (auto-detects mode)
 ```
+
+**Quick Commands**
+```bash
+make dev-health       # Quick health check
+make dev-ports        # Show port usage
+make dev-clean        # Force cleanup (troubleshooting)
+```
+
+**Manual Mode (Advanced - Individual Component Control)**
+```bash
+# First start infrastructure:
+make infra-up         # Start Docker (PostgreSQL + Redis)
+
+# Then start components individually:
+make backend-start    # Start backend only
+make frontend-start   # Start frontend only
+make celery-start     # Start Celery worker + beat
+
+# Or restart individual components:
+make backend-restart  # Restart backend only ~5s
+make frontend-restart # Restart frontend only ~2s
+make celery-restart   # Restart Celery only ~2s
+make infra-restart    # Restart Docker only ~3s
+```
+
+**Note:** Component commands require Docker to be running separately via `make infra-up`. For normal development, use `make start-all` instead.
 
 ### Working with Migrations
 ```bash
 # Create a new migration after changing models
-make migrate-create NAME="description_of_change"
+make db-migrate-create NAME="description_of_change"
 
 # Apply pending migrations
-make migrate
+make db-migrate
 
 # Rollback last migration
-make migrate-downgrade
+make db-migrate-rollback
 
 # Reset database (DESTRUCTIVE - drops all data)
-docker exec $(docker ps -q -f name=postgres) psql -U universalapi -d universalapi -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO universalapi; GRANT ALL ON SCHEMA public TO public;"
-make migrate
+make db-reset
 ```
 
 ### Testing and Quality
 ```bash
-make test          # Run pytest
-make test-cov      # Run pytest with HTML coverage report
-make lint          # Run ruff (backend) + eslint (frontend)
-make format        # Format code with ruff
+# All tests
+make test-all          # Run all tests (core + plugins)
+make test-with-coverage # Run with HTML coverage report
+
+# Core tests only
+make test-core         # Tests in backend/tests/
+
+# Plugin tests
+make test-plugins      # All plugin tests
+make test-plugin PLUGIN=upload  # Specific plugin tests
+make test-e2e          # Run only e2e tests
+
+# Test database
+make test-db-up        # Start test PostgreSQL on port 5433
+make test-db-stop      # Stop test database
+
+# Linting
+make lint              # Run ruff (backend) + eslint (frontend)
+make format            # Format code with ruff
+make typecheck         # Run type checking (mypy)
+```
+
+### Environment Status
+```bash
+make status           # Show detailed status (versions, services, uptime, logs)
+make dev-status       # Alias for status
+make dev-health       # Quick health check (fast)
 ```
 
 ### Troubleshooting
 ```bash
 # View logs
-make logs
+make logs             # Smart logs (auto-detects Honcho vs Manual mode)
+make logs-backend     # Backend logs only
+make logs-frontend    # Frontend logs only
+make logs-celery      # Celery logs only
+make logs-infra       # Docker logs only
 
-# Stop all containers
-make stop
+# Status and diagnostics
+make dev-health       # Quick health check
+make dev-ports        # Show which ports are in use
+make status           # Detailed status
+
+# Force cleanup
+make dev-clean        # Kill all processes + stop Docker
+make stop-all         # Stop all services gracefully
 
 # Check backend is running
 curl http://localhost:8000/api/v1/auth/login
 
-# Kill process on port
+# Kill process on port (if needed)
 lsof -ti:8000 | xargs kill -9
 
-# Restart backend after code changes
-# (Required when changing models, event handlers, or plugin registration)
+# Restart after code changes
+make restart-all      # Restart everything (RECOMMENDED - per CLAUDE.md)
 ```
 
 ## Architecture Essentials
@@ -194,6 +242,76 @@ The EventBus coordinates plugin interactions:
 - `Document`, `DocumentType`
 - `PluginConfig`, `PluginFilter`, `ProcessingJob`
 - Plugin-specific models (e.g., `Transcription`, `TranscriptionWord`)
+
+### Testing Architecture
+
+Tests follow a **plugin-centric structure** - plugin tests live close to plugin code, but all tests are runnable from one place.
+
+**Directory Structure:**
+```
+backend/
+├── tests/                        # Core tests
+│   ├── conftest.py               # Shared fixtures (CRITICAL)
+│   ├── unit/
+│   │   ├── test_auth.py
+│   │   └── test_documents.py
+│   ├── integration/
+│   │   ├── test_api_auth.py
+│   │   └── test_plugin_loading.py
+│   └── fixtures/
+│       └── factories.py
+│
+└── plugins/
+    ├── upload/
+    │   ├── plugin.py
+    │   ├── README.md             # REQUIRED: Plugin documentation
+    │   └── tests/                # Plugin tests CLOSE to code
+    │       ├── conftest.py       # Imports from tests.conftest
+    │       ├── test_unit.py
+    │       └── test_e2e.py       # REQUIRED: E2E tests
+    │
+    └── audio_transcription/
+        ├── plugin.py
+        ├── README.md
+        └── tests/
+            ├── conftest.py
+            ├── test_unit.py
+            └── test_e2e.py
+```
+
+**Key Configuration (`pyproject.toml`):**
+```toml
+[tool.pytest.ini_options]
+testpaths = ["tests", "plugins"]  # Discovers tests in both locations
+markers = [
+    "e2e: end-to-end tests",
+    "plugin: plugin-specific tests",
+]
+```
+
+**Shared Fixtures (`tests/conftest.py`):**
+- `db_session` - Async SQLAlchemy session (auto-rollback)
+- `async_client` - httpx AsyncClient for API tests
+- `test_user`, `test_admin` - Test user fixtures
+- `auth_headers` - JWT auth headers
+- `mock_event_bus` - Mocked EventBus
+
+**Plugin conftest.py Pattern:**
+```python
+# plugins/my_plugin/tests/conftest.py
+import pytest
+from tests.conftest import *  # noqa: Import shared fixtures
+
+@pytest.fixture
+def plugin_specific_fixture():
+    """Plugin-specific test fixture."""
+    return ...
+```
+
+**Test Database:**
+- Runs on port 5433 (not 5432) to avoid conflicts
+- Started via `make test-db-up` or `docker-compose.test.yml`
+- Uses tmpfs for speed (no persistent storage)
 
 ### Authentication
 
@@ -395,10 +513,29 @@ Always use optional chaining for API data:
 
 ### Creating a New Plugin
 
-See "Plugin Registration" section above. Key files:
+**REQUIRED for every plugin:**
+1. `plugin.py` - Main plugin class inheriting from `BasePlugin`
+2. `README.md` - Documentation (API endpoints, events, configuration)
+3. `tests/` directory with:
+   - `conftest.py` - imports shared fixtures
+   - `test_unit.py` - unit tests
+   - `test_e2e.py` - end-to-end tests (REQUIRED)
+
+**Plugin Creation Checklist:**
+1. Create directory: `/backend/plugins/{plugin_name}/`
+2. Implement `plugin.py` with class inheriting from `BasePlugin`
+3. Create `README.md` using template from `plugins/PLUGIN_TEMPLATE.md`
+4. Create `tests/` directory with conftest.py, test_unit.py, test_e2e.py
+5. Add plugin name to `PLUGINS_ENABLED` in `.env`
+6. If plugin has models, create migration
+7. Run `make test-plugin PLUGIN={plugin_name}` to verify tests pass
+8. Restart backend
+
+**Reference Files:**
 - `backend/app/core/plugins/base.py` - BasePlugin interface
-- `backend/plugins/upload/plugin.py` - Example implementation
-- `backend/plugins/audio_transcription/plugin.py` - Example with dependencies
+- `backend/plugins/upload/` - Example base plugin
+- `backend/plugins/audio_transcription/` - Example with dependencies
+- `backend/plugins/PLUGIN_TEMPLATE.md` - README template
 
 ### Adding Database Models
 
@@ -513,7 +650,19 @@ PLUGINS_ENABLED=["upload", "audio_transcription"]
 
 # CORS
 CORS_ORIGINS=["http://localhost:5173", "http://localhost:3000"]
+
+# Logging (optional)
+LOG_LEVEL=INFO           # DEBUG, INFO, WARNING, ERROR
+LOG_FORMAT=auto          # auto, console, json
+LOGS_DIR=./logs          # Directory for log files
+LOG_TO_FILE=false        # Enable file logging
 ```
+
+**Logging:**
+- Development: Human-readable colored console output
+- Production: JSON format for log aggregation
+- File logging with rotation (10MB, 5 backups) when `LOG_TO_FILE=true`
+- Logs directory is already in `.gitignore`
 
 ## Important Notes
 

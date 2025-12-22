@@ -25,7 +25,7 @@ router = APIRouter()
 
 
 class UploadResponse(BaseModel):
-    document_id: str
+    id: str
     filename: str
     content_type: str
     size_bytes: int
@@ -156,7 +156,7 @@ async def upload_file(
     )
 
     return UploadResponse(
-        document_id=str(document.id),
+        id=str(document.id),
         filename=file.filename or "unknown",
         content_type=content_type,
         size_bytes=file_size,

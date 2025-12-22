@@ -34,6 +34,7 @@ import {
 import { Progress } from '@/components/ui/progress'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { api, type Document } from '@/core/api/client'
+import { log } from '@/core/utils/logger'
 
 function getFileIcon(contentType: string) {
   if (contentType.startsWith('audio/')) return FileAudio
@@ -68,7 +69,7 @@ function UploadDialog() {
       setFile(null)
       setProgress(0)
     } catch (error) {
-      console.error('Upload failed:', error)
+      log.error('upload_failed', error, { filename: file.name, size: file.size })
     } finally {
       setIsUploading(false)
     }

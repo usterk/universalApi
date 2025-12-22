@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -10,8 +9,9 @@ from uuid import UUID
 
 from app.core.events.types import Event, EventType, EventSeverity
 from app.core.events.models import SystemEvent
+from app.core.logging import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 class EventBus:
@@ -117,7 +117,17 @@ class EventBus:
         # 4. Push to SSE clients
         await self._push_to_sse_clients(event)
 
-        logger.debug(f"Emitted event: {type_str} from {source}")
+        # 5. Log event to event.log (with marker)
+        logger.info(
+            "event_emitted",
+            event_type=type_str,
+            source=source,
+            severity=severity.value,
+            payload=payload,
+            user_id=str(user_id) if user_id else None,
+            is_event=True,  # Marker for EventFilter
+        )
+
         return event
 
     def emit_sync(

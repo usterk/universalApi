@@ -79,6 +79,109 @@ def get_registry(request: Request) -> PluginRegistry:
     return request.app.state.plugin_registry
 
 
+# =============================================================================
+# Jobs endpoints - MUST come before /{plugin_name} routes
+# =============================================================================
+
+@router.get("/jobs", response_model=list[JobResponse])
+async def list_jobs(
+    current_user: CurrentActiveUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    plugin_name: str | None = None,
+    status_filter: str | None = None,
+    limit: int = 50,
+) -> list[JobResponse]:
+    """List processing jobs."""
+    query = select(ProcessingJob).order_by(ProcessingJob.created_at.desc()).limit(limit)
+
+    if plugin_name:
+        query = query.where(ProcessingJob.plugin_name == plugin_name)
+
+    if status_filter:
+        query = query.where(ProcessingJob.status == status_filter)
+
+    result = await db.execute(query)
+    jobs = result.scalars().all()
+
+    return [
+        JobResponse(
+            id=str(j.id),
+            document_id=str(j.document_id),
+            plugin_name=j.plugin_name,
+            status=j.status,
+            progress=j.progress,
+            progress_message=j.progress_message,
+            result=j.result,
+            error_message=j.error_message,
+            output_document_id=str(j.output_document_id) if j.output_document_id else None,
+            started_at=j.started_at.isoformat() if j.started_at else None,
+            completed_at=j.completed_at.isoformat() if j.completed_at else None,
+            created_at=j.created_at.isoformat(),
+        )
+        for j in jobs
+    ]
+
+
+@router.get("/jobs/{job_id}", response_model=JobResponse)
+async def get_job(
+    job_id: UUID,
+    current_user: CurrentActiveUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> JobResponse:
+    """Get job details."""
+    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    job = result.scalar_one_or_none()
+
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    return JobResponse(
+        id=str(job.id),
+        document_id=str(job.document_id),
+        plugin_name=job.plugin_name,
+        status=job.status,
+        progress=job.progress,
+        progress_message=job.progress_message,
+        result=job.result,
+        error_message=job.error_message,
+        output_document_id=str(job.output_document_id) if job.output_document_id else None,
+        started_at=job.started_at.isoformat() if job.started_at else None,
+        completed_at=job.completed_at.isoformat() if job.completed_at else None,
+        created_at=job.created_at.isoformat(),
+    )
+
+
+@router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_200_OK)
+async def cancel_job(
+    job_id: UUID,
+    current_user: CurrentActiveUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict:
+    """Cancel a pending or running job."""
+    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
+    job = result.scalar_one_or_none()
+
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
+
+    if job.status not in [JobStatus.PENDING.value, JobStatus.QUEUED.value, JobStatus.RUNNING.value]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot cancel job with status {job.status}",
+        )
+
+    job.status = JobStatus.CANCELLED.value
+    await db.commit()
+
+    # TODO: Also revoke Celery task if running
+
+    return {"status": "cancelled", "job_id": str(job_id)}
+
+
+# =============================================================================
+# Plugin management endpoints
+# =============================================================================
+
 @router.get("", response_model=list[PluginResponse])
 async def list_plugins(
     current_user: CurrentActiveUser,
@@ -357,100 +460,3 @@ async def delete_plugin_filter(
 
     await db.delete(filter_obj)
     await db.commit()
-
-
-# Jobs endpoints
-
-@router.get("/jobs", response_model=list[JobResponse])
-async def list_jobs(
-    current_user: CurrentActiveUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
-    plugin_name: str | None = None,
-    status_filter: str | None = None,
-    limit: int = 50,
-) -> list[JobResponse]:
-    """List processing jobs."""
-    query = select(ProcessingJob).order_by(ProcessingJob.created_at.desc()).limit(limit)
-
-    if plugin_name:
-        query = query.where(ProcessingJob.plugin_name == plugin_name)
-
-    if status_filter:
-        query = query.where(ProcessingJob.status == status_filter)
-
-    result = await db.execute(query)
-    jobs = result.scalars().all()
-
-    return [
-        JobResponse(
-            id=str(j.id),
-            document_id=str(j.document_id),
-            plugin_name=j.plugin_name,
-            status=j.status,
-            progress=j.progress,
-            progress_message=j.progress_message,
-            result=j.result,
-            error_message=j.error_message,
-            output_document_id=str(j.output_document_id) if j.output_document_id else None,
-            started_at=j.started_at.isoformat() if j.started_at else None,
-            completed_at=j.completed_at.isoformat() if j.completed_at else None,
-            created_at=j.created_at.isoformat(),
-        )
-        for j in jobs
-    ]
-
-
-@router.get("/jobs/{job_id}", response_model=JobResponse)
-async def get_job(
-    job_id: UUID,
-    current_user: CurrentActiveUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> JobResponse:
-    """Get job details."""
-    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
-    job = result.scalar_one_or_none()
-
-    if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-
-    return JobResponse(
-        id=str(job.id),
-        document_id=str(job.document_id),
-        plugin_name=job.plugin_name,
-        status=job.status,
-        progress=job.progress,
-        progress_message=job.progress_message,
-        result=job.result,
-        error_message=job.error_message,
-        output_document_id=str(job.output_document_id) if job.output_document_id else None,
-        started_at=job.started_at.isoformat() if job.started_at else None,
-        completed_at=job.completed_at.isoformat() if job.completed_at else None,
-        created_at=job.created_at.isoformat(),
-    )
-
-
-@router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_200_OK)
-async def cancel_job(
-    job_id: UUID,
-    current_user: CurrentActiveUser,
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> dict:
-    """Cancel a pending or running job."""
-    result = await db.execute(select(ProcessingJob).where(ProcessingJob.id == job_id))
-    job = result.scalar_one_or_none()
-
-    if job is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
-
-    if job.status not in [JobStatus.PENDING.value, JobStatus.QUEUED.value, JobStatus.RUNNING.value]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Cannot cancel job with status {job.status}",
-        )
-
-    job.status = JobStatus.CANCELLED.value
-    await db.commit()
-
-    # TODO: Also revoke Celery task if running
-
-    return {"status": "cancelled", "job_id": str(job_id)}

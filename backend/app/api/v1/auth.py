@@ -12,6 +12,8 @@ from app.core.auth.password import verify_password
 from app.core.auth.jwt import create_access_token, create_refresh_token, verify_token
 from app.core.auth.dependencies import CurrentActiveUser
 from app.core.users.models import User
+from app.core.events.bus import get_event_bus
+from app.core.events.types import EventType, EventSeverity
 
 router = APIRouter()
 
@@ -63,6 +65,21 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user",
         )
+
+    # Emit user.login event
+    event_bus = get_event_bus()
+    await event_bus.emit(
+        event_type=EventType.USER_LOGIN,
+        source="api:auth",
+        payload={
+            "user_id": str(user.id),
+            "email": user.email,
+            "is_superuser": user.is_superuser,
+        },
+        user_id=user.id,
+        severity=EventSeverity.INFO,
+        persist=True,
+    )
 
     return TokenResponse(
         access_token=create_access_token(user.id),

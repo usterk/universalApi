@@ -14,6 +14,8 @@ from app.core.auth.dependencies import CurrentActiveUser, CurrentUserOrSource
 from app.core.documents.models import Document, DocumentType
 from app.core.users.models import User
 from app.core.sources.models import Source
+from app.core.events.bus import get_event_bus
+from app.core.events.types import EventType, EventSeverity
 
 router = APIRouter()
 
@@ -245,7 +247,26 @@ async def delete_document(
     if document is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
+    # Store document info before deletion
+    doc_type_name = document.document_type.name
+
     # TODO: Also delete file from storage plugin
 
     await db.delete(document)
+
+    # Emit document.deleted event
+    event_bus = get_event_bus()
+    await event_bus.emit(
+        event_type=EventType.DOCUMENT_DELETED,
+        source="api:documents",
+        payload={
+            "document_id": str(document_id),
+            "document_type": doc_type_name,
+            "owner_id": str(current_user.id),
+        },
+        user_id=current_user.id,
+        severity=EventSeverity.INFO,
+        persist=True,
+    )
+
     await db.commit()

@@ -3,6 +3,7 @@
 from celery import Celery
 
 from app.config import settings
+from app.core.logging import setup_logging
 
 celery_app = Celery(
     "universalapi",
@@ -31,6 +32,10 @@ celery_app.conf.update(
     worker_prefetch_multiplier=1,  # Fair distribution
     worker_concurrency=4,
 
+    # Graceful shutdown (Kubernetes-compatible)
+    worker_shutdown_timeout=30,  # Match Kubernetes grace period
+    worker_cancel_long_running_tasks_on_connection_loss=True,
+
     # Task routing - each plugin gets its own queue
     task_routes={
         "plugins.upload.*": {"queue": "upload"},
@@ -46,3 +51,15 @@ celery_app.conf.update(
 
 # Auto-discover tasks from plugins
 celery_app.autodiscover_tasks(["plugins"])
+
+# Initialize structured logging for Celery
+setup_logging(
+    log_level=settings.log_level,
+    log_format=settings.log_format,
+    is_development=settings.is_development,
+    logs_dir=settings.logs_dir,
+    log_to_file=settings.log_to_file,
+    log_file_max_bytes=settings.log_file_max_bytes,
+    log_file_backup_count=settings.log_file_backup_count,
+    for_celery=True,
+)

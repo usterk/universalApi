@@ -41,7 +41,8 @@ async def event_generator(
         # 2. Stream new events
         while True:
             try:
-                event = await asyncio.wait_for(queue.get(), timeout=30)
+                # 15 second keepalive interval for faster detection of connection issues
+                event = await asyncio.wait_for(queue.get(), timeout=15)
 
                 # Filter if needed
                 if event_types and event.type not in event_types:
@@ -50,7 +51,7 @@ async def event_generator(
                 yield format_sse_event(event)
 
             except asyncio.TimeoutError:
-                # Send keepalive
+                # Send keepalive every 15 seconds
                 yield {"event": "keepalive", "data": ""}
 
     finally:

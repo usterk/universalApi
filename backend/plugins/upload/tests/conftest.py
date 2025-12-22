@@ -1,0 +1,43 @@
+"""Plugin-specific fixtures for Upload plugin tests.
+
+Import shared fixtures from main conftest.
+"""
+
+import pytest
+
+# Import all shared fixtures
+from tests.conftest import *  # noqa: F401, F403
+
+
+@pytest.fixture
+def sample_upload_file() -> bytes:
+    """Sample file content for upload tests."""
+    return b"Test file content for upload plugin tests.\nLine 2.\nLine 3."
+
+
+@pytest.fixture
+def sample_audio_upload() -> tuple[bytes, str, str]:
+    """Sample audio file tuple (content, filename, content_type)."""
+    # Minimal MP3 file
+    content = bytes([0xFF, 0xFB, 0x90, 0x00] + [0x00] * 100)
+    return (content, "test_audio.mp3", "audio/mpeg")
+
+
+@pytest.fixture
+def sample_image_upload() -> tuple[bytes, str, str]:
+    """Sample image file tuple (content, filename, content_type)."""
+    # Minimal PNG
+    content = bytes(
+        [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
+            0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+            0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
+            0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+            0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
+            0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+            0x42, 0x60, 0x82,
+        ]
+    )
+    return (content, "test_image.png", "image/png")

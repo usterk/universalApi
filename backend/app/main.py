@@ -1,5 +1,6 @@
 """FastAPI application factory."""
 
+import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Annotated, AsyncGenerator
@@ -12,10 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.database.session import engine, async_session_factory, get_db
+from app.core.database.migration_check import require_migrations
 from app.core.events.bus import EventBus, get_event_bus
-from app.core.events.types import EventSeverity
+from app.core.events.types import EventType, EventSeverity
+from app.core.logging import setup_logging, get_logger, LoggingMiddleware
 from app.core.plugins.registry import PluginRegistry
 from app.core.plugins.loader import PluginLoader
+from app.core.shutdown import get_shutdown_coordinator
 from app.api.v1.router import api_router
 
 
@@ -24,68 +28,99 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifecycle management."""
 
     # === STARTUP ===
-    print(f"Starting {settings.app_name}...")
+    # Initialize structured logging FIRST
+    setup_logging(
+        log_level=settings.log_level,
+        log_format=settings.log_format,
+        is_development=settings.is_development,
+        logs_dir=settings.logs_dir,
+        log_to_file=settings.log_to_file,
+        log_file_max_bytes=settings.log_file_max_bytes,
+        log_file_backup_count=settings.log_file_backup_count,
+    )
 
-    # 1. Initialize core services
+    logger = get_logger(__name__)
+    logger.info("application_starting", app_name=settings.app_name, environment=settings.app_env)
+
+    # Check database migrations before starting
+    try:
+        await require_migrations(
+            engine, fail_on_outdated=settings.require_migrations_on_startup
+        )
+    except RuntimeError as e:
+        logger.error("migration_check_failed", error=str(e))
+        raise  # Stop application startup
+
+    # 1. Initialize shutdown coordinator
+    shutdown_coordinator = get_shutdown_coordinator()
+    shutdown_coordinator.setup_signal_handlers()
+
+    # 2. Initialize core services
     event_bus = get_event_bus()
     event_bus.set_db_session_factory(async_session_factory)
     registry = PluginRegistry()
 
-    # 2. Load plugins
+    # 3. Start Redis event subscriber (bridge Celery→EventBus→SSE)
+    from app.core.events.redis_subscriber import RedisEventSubscriber
+
+    redis_subscriber = RedisEventSubscriber(event_bus)
+    subscriber_task = asyncio.create_task(redis_subscriber.start())
+    logger.info("redis_subscriber_started")
+
+    # 4. Load plugins
     loader = PluginLoader(registry, event_bus)
     discovered = loader.discover()
-    print(f"Discovered plugins: {discovered}")
+    logger.info("plugins_discovered", plugins=discovered)
 
     # Load plugin settings (from DB or defaults)
     plugin_settings: dict[str, dict] = {}  # TODO: Load from DB
     await loader.load_all(plugin_settings)
 
-    # 3. Mount plugin routers
+    # 5. Mount plugin routers
     for plugin_name, router in registry.collect_routers():
         app.include_router(
             router,
             prefix=f"/api/v1/plugins/{plugin_name}",
             tags=[f"plugin:{plugin_name}"],
         )
-        print(f"Mounted plugin router: /api/v1/plugins/{plugin_name}")
+        logger.info("plugin_router_mounted", plugin_name=plugin_name, prefix=f"/api/v1/plugins/{plugin_name}")
 
-    # 4. Register event handlers from plugins
+    # 6. Register event handlers from plugins
     for plugin in registry.get_active_plugins():
         handlers = plugin.get_event_handlers()
         for event_type, handler_list in handlers.items():
             for handler in handler_list:
                 event_bus.subscribe(event_type, handler)
 
-    # 5. Call startup hooks
+    # 7. Call startup hooks
     for plugin in registry.get_active_plugins():
         await plugin.on_startup()
 
-    # Store in app state
+    # 8. Store in app state
     app.state.event_bus = event_bus
     app.state.plugin_registry = registry
+    app.state.shutdown_coordinator = shutdown_coordinator
+    app.state.redis_subscriber = redis_subscriber
 
-    print(f"{settings.app_name} started successfully!")
+    logger.info(
+        "application_started_successfully",
+        app_name=settings.app_name,
+        plugins_loaded=len(registry.get_active_plugins())
+    )
 
-    # Emit startup event as a "job" so it appears on timeline
+    # 9. Emit system.startup event (using proper event type)
     await event_bus.emit(
-        event_type="job.completed",
-        source="system:startup",
+        event_type=EventType.SYSTEM_STARTUP,
+        source="system",
         payload={
-            "job_id": "startup",
-            "plugin_name": "system",
-            "plugin_color": "#10B981",
-            "document_id": "system",
-            "document_name": "Application Startup",
-            "status": "completed",
-            "completed_at": datetime.utcnow().isoformat(),
             "app_name": settings.app_name,
             "environment": settings.app_env,
             "plugins_loaded": len(registry.get_active_plugins()),
+            "plugin_names": [p.metadata.name for p in registry.get_active_plugins()],
         },
         severity=EventSeverity.SUCCESS,
-        persist=False,
+        persist=True,
     )
-    print(f"Emitted startup event for SSE stream")
 
     # Save application start time for uptime tracking
     app.state._start_time = time.time()
@@ -93,15 +128,143 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     yield
 
     # === SHUTDOWN ===
-    print(f"Shutting down {settings.app_name}...")
+    shutdown_start = time.time()
+    logger.info("application_shutting_down", app_name=settings.app_name)
 
+    # 1. Emit system.shutdown event
+    await event_bus.emit(
+        event_type=EventType.SYSTEM_SHUTDOWN,
+        source="system",
+        payload={
+            "app_name": settings.app_name,
+            "uptime_seconds": time.time() - app.state._start_time,
+            "reason": "graceful_shutdown",
+        },
+        severity=EventSeverity.WARNING,
+        persist=True,
+    )
+
+    # 2. Stop accepting new tasks
+    shutdown_coordinator.is_shutting_down = True
+    logger.info("shutdown_blocking_new_tasks")
+
+    # 3. Stop Redis subscriber
+    redis_subscriber.stop()
+    try:
+        await asyncio.wait_for(subscriber_task, timeout=5.0)
+        logger.info("redis_subscriber_stopped")
+    except asyncio.TimeoutError:
+        logger.warning("redis_subscriber_stop_timeout")
+        subscriber_task.cancel()
+
+    # 4. Wait for running jobs (with timeout)
+    await _wait_for_running_jobs(event_bus, timeout=25)  # Leave 5s buffer
+
+    # 5. Call plugin shutdown hooks
     for plugin in registry.get_active_plugins():
-        await plugin.on_shutdown()
+        try:
+            await asyncio.wait_for(plugin.on_shutdown(), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("plugin_shutdown_timeout", plugin_name=plugin.metadata.name)
 
-    # Close database connections
+    # 6. Close database connections
     await engine.dispose()
 
-    print(f"{settings.app_name} shut down complete.")
+    elapsed = time.time() - shutdown_start
+    logger.info(
+        "application_shutdown_complete",
+        app_name=settings.app_name,
+        shutdown_duration_seconds=elapsed,
+    )
+
+
+async def _wait_for_running_jobs(event_bus: EventBus, timeout: int) -> None:
+    """Wait for running jobs to complete with timeout.
+
+    Args:
+        event_bus: EventBus instance
+        timeout: Maximum seconds to wait
+    """
+    from app.core.database.session import async_session_factory
+    from app.core.plugins.models import ProcessingJob, JobStatus
+    from sqlalchemy import select
+
+    logger = get_logger(__name__)
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(ProcessingJob).where(
+                    ProcessingJob.status.in_([JobStatus.RUNNING.value, JobStatus.QUEUED.value])
+                )
+            )
+            running_jobs = result.scalars().all()
+
+            if not running_jobs:
+                logger.info("shutdown_all_jobs_completed")
+                return
+
+            logger.info(
+                "shutdown_waiting_for_jobs",
+                running_count=len(running_jobs),
+                remaining_timeout=timeout - (time.time() - start_time),
+            )
+
+        await asyncio.sleep(2)  # Check every 2 seconds
+
+    # Timeout exceeded - cancel remaining jobs
+    logger.warning("shutdown_timeout_cancelling_jobs")
+    await _cancel_all_running_jobs(event_bus)
+
+
+async def _cancel_all_running_jobs(event_bus: EventBus) -> None:
+    """Cancel all running jobs during shutdown.
+
+    Args:
+        event_bus: EventBus instance
+    """
+    from app.core.database.session import async_session_factory
+    from app.core.plugins.models import ProcessingJob, JobStatus
+    from app.core.queue.celery_app import celery_app
+    from sqlalchemy import select
+
+    logger = get_logger(__name__)
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(ProcessingJob).where(
+                ProcessingJob.status.in_([JobStatus.RUNNING.value, JobStatus.QUEUED.value])
+            )
+        )
+        running_jobs = result.scalars().all()
+
+        for job in running_jobs:
+            # Revoke Celery task
+            if job.task_id:
+                celery_app.control.revoke(job.task_id, terminate=True)
+
+            # Update job status
+            job.status = JobStatus.CANCELLED.value
+            job.completed_at = datetime.utcnow()
+            job.error_message = "Cancelled due to system shutdown"
+
+            # Emit cancelled event
+            await event_bus.emit(
+                event_type=EventType.JOB_CANCELLED,
+                source="system:shutdown",
+                payload={
+                    "job_id": str(job.id),
+                    "plugin_name": job.plugin_name,
+                    "document_id": str(job.document_id),
+                    "reason": "system_shutdown",
+                },
+                severity=EventSeverity.WARNING,
+                persist=True,
+            )
+
+        await session.commit()
+        logger.info("shutdown_cancelled_jobs", count=len(running_jobs))
 
 
 def create_app() -> FastAPI:
@@ -124,6 +287,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Logging middleware (adds correlation IDs and request context)
+    app.add_middleware(LoggingMiddleware)
 
     # Core API routes
     app.include_router(api_router, prefix="/api/v1")

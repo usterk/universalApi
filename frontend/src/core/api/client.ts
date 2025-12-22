@@ -270,8 +270,13 @@ export const api = {
     return response.data
   },
 
-  cancelJob: async (id: string): Promise<void> => {
-    await apiClient.post(`/plugins/jobs/${id}/cancel`)
+  getJob: async (id: string): Promise<ProcessingJob> => {
+    const response = await apiClient.get(`/jobs/${id}`)
+    return response.data
+  },
+
+  cancelJob: async (id: string, reason?: string): Promise<void> => {
+    await apiClient.post(`/jobs/${id}/cancel`, { reason })
   },
 
   // Upload

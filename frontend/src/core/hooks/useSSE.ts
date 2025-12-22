@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAuthStore } from '@/core/stores/auth'
 import { api } from '@/core/api/client'
+import { log } from '@/core/utils/logger'
 
 export interface SSEEvent {
   id: string
@@ -49,7 +50,7 @@ export function useSSE(options: UseSSEOptions = {}) {
 
   const connect = useCallback(() => {
     if (!accessToken) {
-      console.log('[SSE] No access token available, skipping connection')
+      log.debug('sse_no_token', { message: 'No access token available, skipping connection' })
       return
     }
 
@@ -72,7 +73,7 @@ export function useSSE(options: UseSSEOptions = {}) {
 
     eventSource.onopen = () => {
       setIsConnected(true)
-      console.log('[SSE] Connected to event stream')
+      log.info('sse_connected', { message: 'Connected to event stream' })
     }
 
     // Handler for SSE events
@@ -82,7 +83,7 @@ export function useSSE(options: UseSSEOptions = {}) {
         setEvents((prev) => [...prev.slice(-99), data])
         onEvent?.(data)
       } catch (error) {
-        console.error('[SSE] Failed to parse event:', error, event)
+        log.error('sse_parse_failed', error, { event: event.data })
       }
     }
 
@@ -98,11 +99,11 @@ export function useSSE(options: UseSSEOptions = {}) {
 
     // Listen to keepalive events
     eventSource.addEventListener('keepalive', () => {
-      console.log('[SSE] Keepalive received')
+      log.debug('sse_keepalive', { message: 'Keepalive received' })
     })
 
     eventSource.onerror = async (event) => {
-      console.error('[SSE] Connection error:', event)
+      log.error('sse_connection_error', event, { readyState: eventSource.readyState })
       setIsConnected(false)
       onError?.(event)
 
@@ -112,18 +113,18 @@ export function useSSE(options: UseSSEOptions = {}) {
       const refreshToken = useAuthStore.getState().refreshToken
       if (refreshToken && eventSource.readyState === EventSource.CLOSED) {
         try {
-          console.log('[SSE] Attempting to refresh token...')
+          log.info('sse_token_refresh_attempt', { message: 'Attempting to refresh token' })
           await api.me() // This will trigger token refresh if needed
-          console.log('[SSE] Token refreshed, will reconnect')
+          log.info('sse_token_refreshed', { message: 'Token refreshed, will reconnect' })
         } catch (error) {
-          console.error('[SSE] Token refresh failed:', error)
+          log.error('sse_token_refresh_failed', error)
           // If refresh fails, user will be logged out by axios interceptor
           return
         }
       }
 
       if (autoReconnect) {
-        console.log(`[SSE] Reconnecting in ${reconnectDelay}ms...`)
+        log.info('sse_reconnecting', { delay_ms: reconnectDelay })
         reconnectTimeoutRef.current = setTimeout(() => {
           connect()
         }, reconnectDelay)
@@ -150,7 +151,7 @@ export function useSSE(options: UseSSEOptions = {}) {
   // Watch for token changes and reconnect
   useEffect(() => {
     if (prevTokenRef.current !== accessToken) {
-      console.log('[SSE] Token changed, reconnecting...')
+      log.info('sse_token_changed', { message: 'Token changed, reconnecting' })
       prevTokenRef.current = accessToken
       disconnect()
       if (accessToken) {
