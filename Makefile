@@ -564,29 +564,38 @@ db-reset:
 # 8. Testing
 # =============================================================================
 
+# Ensure test database is running (idempotent helper)
+ensure-test-db:
+	@if ! docker compose -f docker-compose.test.yml ps 2>/dev/null | grep -q "Up"; then \
+		echo "📦 Test database not running, starting..."; \
+		docker compose -f docker-compose.test.yml up -d; \
+		sleep 2; \
+		echo "✓ Test database started"; \
+	fi
+
 # Run all tests (core + plugins)
-test-all:
+test-all: ensure-test-db
 	@echo "🧪 Running all tests..."
 	@cd backend && poetry run pytest
 
 # Run tests with HTML coverage report
-test-with-coverage:
+test-with-coverage: ensure-test-db
 	@echo "🧪 Running tests with coverage..."
 	@cd backend && poetry run pytest --cov=app --cov=plugins --cov-report=html --cov-report=term
 	@echo "✓ Coverage report: backend/htmlcov/index.html"
 
 # Run only core tests
-test-core:
+test-core: ensure-test-db
 	@echo "🧪 Running core tests..."
 	@cd backend && poetry run pytest tests/ -v
 
 # Run all plugin tests
-test-plugins:
+test-plugins: ensure-test-db
 	@echo "🧪 Running plugin tests..."
 	@cd backend && poetry run pytest plugins/ -v
 
 # Run specific plugin tests (usage: make test-plugin PLUGIN=upload)
-test-plugin:
+test-plugin: ensure-test-db
 ifndef PLUGIN
 	$(error ❌ PLUGIN is required. Usage: make test-plugin PLUGIN=upload)
 endif
@@ -594,7 +603,7 @@ endif
 	@cd backend && poetry run pytest plugins/$(PLUGIN)/tests/ -v
 
 # Run only e2e tests for all plugins
-test-e2e:
+test-e2e: ensure-test-db
 	@echo "🧪 Running e2e tests..."
 	@cd backend && poetry run pytest plugins/ -m e2e -v
 
