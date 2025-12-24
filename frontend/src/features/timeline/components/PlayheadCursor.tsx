@@ -31,11 +31,15 @@ export function PlayheadCursor({ viewport }: PlayheadCursorProps) {
   // Clamp position to viewport bounds to prevent overflow
   const clampedX = Math.max(0, Math.min(playheadX, viewport.width))
 
+  // When at the right edge, shift label left so it stays fully visible
+  const isAtRightEdge = playheadX >= viewport.width - 30
+  const labelTransform = isAtRightEdge ? 'translateX(-100%)' : 'translateX(-50%)'
+
   return (
     <>
       {/* Vertical line */}
       <div
-        className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-20"
+        className="absolute top-0 bottom-0 w-0.5 bg-red-500 pointer-events-none z-30"
         style={{
           left: `${clampedX}px`,
           boxShadow: '0 0 4px rgba(239, 68, 68, 0.5)',
@@ -44,12 +48,13 @@ export function PlayheadCursor({ viewport }: PlayheadCursorProps) {
 
       {/* "Now" label at the top */}
       <div
-        className="absolute top-0 transform -translate-x-1/2 pointer-events-none z-20"
+        className="absolute top-0 pointer-events-none z-30"
         style={{
           left: `${clampedX}px`,
+          transform: labelTransform,
         }}
       >
-        <div className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-b shadow-md font-medium">
+        <div className="bg-red-500 text-white text-xs px-2 py-0.5 rounded-b shadow-md font-medium whitespace-nowrap">
           Now
         </div>
       </div>

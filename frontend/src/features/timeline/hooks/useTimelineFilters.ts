@@ -25,8 +25,8 @@ export interface UseTimelineFiltersResult {
   setPlugins: (plugins: Set<string>) => void
   setEventTypes: (eventTypes: Set<EventType>) => void
   setStatuses: (statuses: Set<JobStatus>) => void
-  clearAll: () => void
-  selectAll: (availablePlugins: string[]) => void
+  clearAll: (availablePlugins: string[]) => void
+  selectAll: () => void
   isPluginEnabled: (pluginName: string) => boolean
   isEventTypeEnabled: (eventType: EventType) => boolean
   isStatusEnabled: (status: JobStatus) => boolean
@@ -121,17 +121,19 @@ export function useTimelineFilters(): UseTimelineFiltersResult {
     setFilters((prev) => ({ ...prev, statuses }))
   }, [])
 
-  const clearAll = useCallback(() => {
+  const clearAll = useCallback((availablePlugins: string[]) => {
+    // Hide everything - all plugins disabled, no event types, no statuses
     setFilters({
-      plugins: new Set(),
+      plugins: new Set(availablePlugins), // All plugins disabled (in the set = hidden)
       eventTypes: new Set(),
       statuses: new Set(),
     })
   }, [])
 
-  const selectAll = useCallback((availablePlugins: string[]) => {
+  const selectAll = useCallback(() => {
+    // Show everything - no plugins disabled, all event types, all statuses
     setFilters({
-      plugins: new Set(availablePlugins),
+      plugins: new Set(), // Empty = all enabled
       eventTypes: new Set<EventType>([
         'job.started',
         'job.progress',
@@ -145,7 +147,8 @@ export function useTimelineFilters(): UseTimelineFiltersResult {
   const isPluginEnabled = useCallback(
     (pluginName: string) => {
       // Empty set means all plugins enabled
-      return filters.plugins.size === 0 || filters.plugins.has(pluginName)
+      // Plugins IN the set are DISABLED (hidden)
+      return !filters.plugins.has(pluginName)
     },
     [filters.plugins]
   )

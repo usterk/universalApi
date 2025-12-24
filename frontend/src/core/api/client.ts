@@ -111,6 +111,7 @@ export interface DocumentType {
 export interface Document {
   id: string
   type_name: string
+  type_display_name: string
   owner_id: string
   source_id: string | null
   parent_id: string | null
@@ -158,6 +159,60 @@ export interface PaginatedResponse<T> {
   total: number
   page: number
   page_size: number
+}
+
+export interface DocumentTreeNode {
+  id: string
+  type_name: string
+  type_display_name: string
+  owner_id: string
+  source_id: string | null
+  parent_id: string | null
+  storage_plugin: string
+  filepath: string
+  content_type: string
+  size_bytes: number
+  properties: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  children: DocumentTreeNode[]
+}
+
+export interface DocumentTreeResponse {
+  items: DocumentTreeNode[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface ProcessingJobResponse {
+  id: string
+  plugin_name: string
+  status: string
+  progress: number
+  progress_message: string | null
+  result: Record<string, unknown> | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+}
+
+export interface SystemEventResponse {
+  id: string
+  event_type: string
+  source: string
+  severity: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface DocumentDetailsResponse {
+  document: Document
+  parent: Document | null
+  children: Document[]
+  processing_jobs: ProcessingJobResponse[]
+  system_events: SystemEventResponse[]
 }
 
 // API functions
@@ -304,6 +359,56 @@ export const api = {
         }
       },
     })
+    return response.data
+  },
+
+  // Get file content URL (for preview/download)
+  getFileContentUrl: (documentId: string, inline: boolean = true): string => {
+    const token = useAuthStore.getState().accessToken
+    return `/api/v1/plugins/upload/files/${documentId}/content?inline=${inline}&token=${token}`
+  },
+
+  // Download file
+  downloadFile: async (documentId: string, filename?: string): Promise<void> => {
+    const response = await apiClient.get(`/plugins/upload/files/${documentId}/content`, {
+      params: { inline: false },
+      responseType: 'blob',
+    })
+
+    const url = window.URL.createObjectURL(new Blob([response.data]))
+    const link = document.createElement('a')
+    link.href = url
+    link.setAttribute('download', filename || 'download')
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  },
+
+  // Get documents tree
+  getDocumentTree: async (
+    page = 1,
+    pageSize = 20,
+    filters?: {
+      type_name?: string
+      source_id?: string
+      created_after?: string
+      created_before?: string
+      sort_by?: string
+      sort_order?: string
+    }
+  ): Promise<DocumentTreeResponse> => {
+    const params: Record<string, unknown> = { page, page_size: pageSize }
+    if (filters) {
+      Object.assign(params, filters)
+    }
+    const response = await apiClient.get('/documents/tree', { params })
+    return response.data
+  },
+
+  // Get document details
+  getDocumentDetails: async (id: string): Promise<DocumentDetailsResponse> => {
+    const response = await apiClient.get(`/documents/${id}/details`)
     return response.data
   },
 }

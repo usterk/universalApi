@@ -15,7 +15,8 @@ interface TimelineFiltersProps {
   onToggleVisibility?: () => void
 }
 
-const EVENT_TYPE_LABELS: Record<EventType, string> = {
+// Only show job event types in filter UI (system events use status filter)
+const EVENT_TYPE_LABELS: Partial<Record<EventType, string>> = {
   'job.started': 'Starting',
   'job.progress': 'Processing',
   'job.completed': 'Completed',
@@ -71,11 +72,11 @@ export function TimelineFilters({
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => filters.selectAll(allPlugins)}
+            onClick={() => filters.selectAll()}
           >
             Select All
           </Button>
-          <Button variant="ghost" size="sm" onClick={filters.clearAll}>
+          <Button variant="ghost" size="sm" onClick={() => filters.clearAll(allPlugins)}>
             Clear All
           </Button>
           {onToggleVisibility && (

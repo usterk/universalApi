@@ -312,17 +312,16 @@ def create_app() -> FastAPI:
         check_id = str(uuid4())
         start_time = time.time()
 
-        # Emit started event as a job event (for timeline visibility)
+        # Emit started event as a proper system event
         await event_bus.emit(
-            event_type="job.started",
+            event_type=EventType.SYSTEM_HEALTH_CHECK_STARTED,
             source="system:health_check",
             payload={
-                "job_id": check_id,
-                "plugin_name": "health_check",
-                "plugin_color": "#22C55E",
-                "document_id": "health",
-                "document_name": "System Health Check",
-                "started_at": datetime.utcnow().isoformat(),
+                "activity_id": check_id,
+                "activity_type": "health_check",
+                "activity_name": "System Health Check",
+                "activity_color": "#22C55E",
+                "started_at": datetime.utcnow().isoformat() + "Z",
             },
             severity=EventSeverity.INFO,
             persist=False,  # Don't clutter database
@@ -395,7 +394,7 @@ def create_app() -> FastAPI:
 
         response = {
             "status": overall_status,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             "uptime_seconds": uptime,
             "version": "0.1.0",
             "environment": settings.app_env,
@@ -414,20 +413,22 @@ def create_app() -> FastAPI:
             "plugins": plugins_data,
         }
 
-        # Emit completed event as a job event (for timeline visibility)
+        # Emit completed event as a proper system event
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
         await event_bus.emit(
-            event_type="job.completed",
+            event_type=EventType.SYSTEM_HEALTH_CHECK_COMPLETED,
             source="system:health_check",
             payload={
-                "job_id": check_id,
-                "plugin_name": "health_check",
-                "plugin_color": "#22C55E",
-                "document_id": "health",
-                "document_name": "System Health Check",
+                "activity_id": check_id,
+                "activity_type": "health_check",
+                "activity_name": "System Health Check",
+                "activity_color": "#22C55E",
                 "duration_ms": elapsed_ms,
                 "status": overall_status,
-                "completed_at": datetime.utcnow().isoformat(),
+                "completed_at": datetime.utcnow().isoformat() + "Z",
+                "database_status": db_status,
+                "redis_status": redis_status,
+                "celery_status": celery_status,
             },
             severity=EventSeverity.SUCCESS if overall_status == "healthy" else EventSeverity.WARNING,
             persist=False,

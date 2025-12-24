@@ -150,7 +150,7 @@ class EventBus:
             "type": type_str,
             "source": source,
             "payload": payload,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             **kwargs,
         }
 
@@ -188,7 +188,7 @@ class EventBus:
         if source_filter:
             events = [e for e in events if source_filter in e.source]
 
-        return sorted(events, key=lambda e: e.timestamp, reverse=True)
+        return sorted(events, key=lambda e: e.timestamp, reverse=False)
 
     # === SSE MANAGEMENT ===
 

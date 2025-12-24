@@ -8,6 +8,7 @@ from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +45,38 @@ def get_document_type_for_mime(mime_type: str, doc_types: list[DocumentType]) ->
 def calculate_checksum(file_content: bytes) -> str:
     """Calculate SHA-256 checksum."""
     return hashlib.sha256(file_content).hexdigest()
+
+
+def encode_filename_rfc2231(filename: str) -> str:
+    """
+    Encode filename for Content-Disposition header using RFC 2231.
+
+    Handles emoji and non-ASCII characters via UTF-8 percent-encoding.
+    For ASCII-safe filenames, uses simple quoted format.
+    For non-ASCII filenames, uses RFC 2231 format with UTF-8 encoding.
+
+    Args:
+        filename: Original filename
+
+    Returns:
+        Properly formatted filename parameter for Content-Disposition header
+
+    Examples:
+        encode_filename_rfc2231("test.txt") -> 'filename="test.txt"'
+        encode_filename_rfc2231("test_🎯.txt") -> "filename*=UTF-8''test_%F0%9F%8E%AF.txt"
+    """
+    try:
+        # Try ASCII encoding first (faster path for simple filenames)
+        filename.encode('ascii')
+        # If successful, use simple quoted format
+        return f'filename="{filename}"'
+    except UnicodeEncodeError:
+        # Contains non-ASCII chars - use RFC 2231 format
+        from urllib.parse import quote
+        # Encode to UTF-8 and percent-encode
+        encoded = quote(filename.encode('utf-8'))
+        # RFC 2231 format: filename*=charset'language'value
+        return f"filename*=UTF-8''{encoded}"
 
 
 @router.post("/files", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
@@ -151,6 +184,7 @@ async def upload_file(
             "content_type": content_type,
             "size_bytes": file_size,
             "source_id": str(source_id) if source_id else None,
+            "original_filename": file.filename,
         },
         user_id=owner_id,
     )
@@ -195,3 +229,62 @@ async def get_file_info(
         "properties": document.properties,
         "created_at": document.created_at.isoformat(),
     }
+
+
+@router.get("/files/{document_id}/content")
+async def download_file(
+    document_id: str,
+    auth: CurrentUserOrSource,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    inline: bool = False,
+) -> FileResponse:
+    """
+    Download or preview file content.
+
+    Query Parameters:
+    - inline: bool - If True, set Content-Disposition to inline (for preview in browser)
+                     If False, set to attachment (force download)
+
+    Returns file with appropriate Content-Type and Content-Disposition headers.
+    """
+    # Determine owner based on auth type
+    if isinstance(auth, User):
+        owner_id = auth.id
+    else:
+        owner_id = auth.owner_id
+
+    # Fetch document with authorization check
+    result = await db.execute(
+        select(Document).where(Document.id == document_id, Document.owner_id == owner_id)
+    )
+    document = result.scalar_one_or_none()
+
+    if document is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found or access denied"
+        )
+
+    # Build full file path
+    full_path = Path(settings.storage_local_path) / document.filepath
+
+    if not full_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="File not found on storage"
+        )
+
+    # Get filename
+    original_filename = document.properties.get("original_filename") or full_path.name
+
+    # Set Content-Disposition with proper RFC 2231 encoding for Unicode filenames
+    disposition_type = "inline" if inline else "attachment"
+    filename_param = encode_filename_rfc2231(original_filename)
+
+    return FileResponse(
+        path=str(full_path),
+        media_type=document.content_type,
+        headers={
+            "Content-Disposition": f'{disposition_type}; {filename_param}',
+        }
+    )

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useAuthStore } from '@/core/stores/auth'
 import { api } from '@/core/api/client'
 import type { SSEEvent, TimelineJob } from './useSSE'
+import type { SystemActivity } from '@/features/timeline/types'
 
 // Connection state enum
 export enum ConnectionState {
@@ -86,7 +87,7 @@ class SSEManager {
     this.connectionCount++
     const connId = this.connectionCount
 
-    const url = `/api/v1/events/stream?token=${token}&types=job.started,job.progress,job.completed,job.failed`
+    const url = `/api/v1/events/stream?token=${token}&types=job.started,job.progress,job.completed,job.failed,system.health_check.started,system.health_check.completed,system.health_check.failed,document.created,document.updated,document.deleted`
 
     console.log(`[SSEManager #${connId}] Connecting to ${url}`)
     const eventSource = new EventSource(url)
@@ -113,7 +114,18 @@ class SSEManager {
 
     // Listen to all event types
     eventSource.onmessage = handleEvent
-    ;['job.started', 'job.progress', 'job.completed', 'job.failed'].forEach((type) => {
+    ;[
+      'job.started',
+      'job.progress',
+      'job.completed',
+      'job.failed',
+      'system.health_check.started',
+      'system.health_check.completed',
+      'system.health_check.failed',
+      'document.created',
+      'document.updated',
+      'document.deleted',
+    ].forEach((type) => {
       eventSource.addEventListener(type, handleEvent)
     })
 
@@ -359,6 +371,20 @@ class SSEManager {
 // Global singleton instance
 const sseManager = new SSEManager()
 
+/**
+ * Parse ISO timestamp string to Date, ensuring UTC interpretation.
+ * Backend sends timestamps without 'Z' suffix which JS interprets as local time.
+ */
+function parseTimestamp(isoString: string | undefined): Date {
+  if (!isoString) return new Date()
+  // Ensure UTC interpretation by appending Z if missing timezone info
+  const normalized =
+    isoString.endsWith('Z') || isoString.includes('+') || isoString.includes('-', 10)
+      ? isoString
+      : isoString + 'Z'
+  return new Date(normalized)
+}
+
 export function useSSESingleton() {
   const [isConnected, setIsConnected] = useState(false)
   const [connectionState, setConnectionState] = useState<ConnectionState>(
@@ -405,24 +431,126 @@ export function useSSESingleton() {
 
 export function useTimelineEventsSingleton() {
   const [jobs, setJobs] = useState<Map<string, TimelineJob>>(new Map())
-  const { isConnected, connectionState, reconnectAttempts } = useSSESingleton()
+  const [systemActivities, setSystemActivities] = useState<Map<string, SystemActivity>>(new Map())
+  const [documentEvents, setDocumentEvents] = useState<Map<string, import('@/features/timeline/types').DocumentEvent>>(new Map())
+  const { isConnected, connectionState, reconnectAttempts, reconnect, disconnect } = useSSESingleton()
 
   const handleEvent = useCallback((event: SSEEvent) => {
     const { type, data } = event
 
-    if (type === 'job.started') {
-      const job: TimelineJob = {
-        id: data.job_id as string,
-        pluginName: data.plugin_name as string,
-        pluginColor: (data.plugin_color as string) || '#6366F1',
-        documentId: data.document_id as string,
-        documentName: (data.document_name as string) || 'Unknown',
-        progress: 0,
-        progressMessage: 'Starting...',
-        status: 'running',
-        startedAt: new Date(data.started_at as string),
-      }
-      setJobs((prev) => new Map(prev).set(job.id, job))
+    // Handle system health check events
+    if (type === 'system.health_check.started') {
+      setSystemActivities((prev) => {
+        const newActivities = new Map(prev)
+        const activity: SystemActivity = {
+          id: data.activity_id as string,
+          activityType: data.activity_type as string,
+          activityName: data.activity_name as string,
+          activityColor: (data.activity_color as string) || '#22C55E',
+          status: 'running',
+          progress: 0,
+          progressMessage: 'Running health check...',
+          startedAt: parseTimestamp(data.started_at as string),
+        }
+        newActivities.set(activity.id, activity)
+        return newActivities
+      })
+    } else if (type === 'system.health_check.completed') {
+      setSystemActivities((prev) => {
+        const newActivities = new Map(prev)
+        const existing = newActivities.get(data.activity_id as string)
+        const endTime = parseTimestamp(data.completed_at as string)
+
+        if (existing) {
+          newActivities.set(data.activity_id as string, {
+            ...existing,
+            status: 'completed',
+            progress: 100,
+            progressMessage: `Status: ${data.status}`,
+            endedAt: endTime,
+            details: {
+              database_status: data.database_status,
+              redis_status: data.redis_status,
+              celery_status: data.celery_status,
+            },
+          })
+        } else {
+          // Create from completed event (started was missed)
+          const durationMs = (data.duration_ms as number) || 1000
+          newActivities.set(data.activity_id as string, {
+            id: data.activity_id as string,
+            activityType: data.activity_type as string,
+            activityName: data.activity_name as string,
+            activityColor: (data.activity_color as string) || '#22C55E',
+            status: 'completed',
+            progress: 100,
+            progressMessage: `Status: ${data.status}`,
+            startedAt: new Date(endTime.getTime() - durationMs),
+            endedAt: endTime,
+            details: {
+              database_status: data.database_status,
+              redis_status: data.redis_status,
+              celery_status: data.celery_status,
+            },
+          })
+        }
+        return newActivities
+      })
+    } else if (type === 'system.health_check.failed') {
+      setSystemActivities((prev) => {
+        const newActivities = new Map(prev)
+        const existing = newActivities.get(data.activity_id as string)
+        const endTime = parseTimestamp(data.failed_at as string) || new Date()
+
+        if (existing) {
+          newActivities.set(data.activity_id as string, {
+            ...existing,
+            status: 'failed',
+            progressMessage: 'Health check failed',
+            endedAt: endTime,
+            error: (data.error_message as string) || (data.error as string),
+          })
+        } else {
+          const durationMs = (data.duration_ms as number) || 1000
+          newActivities.set(data.activity_id as string, {
+            id: data.activity_id as string,
+            activityType: data.activity_type as string,
+            activityName: data.activity_name as string,
+            activityColor: (data.activity_color as string) || '#22C55E',
+            status: 'failed',
+            progress: 0,
+            progressMessage: 'Health check failed',
+            startedAt: new Date(endTime.getTime() - durationMs),
+            endedAt: endTime,
+            error: (data.error_message as string) || (data.error as string),
+          })
+        }
+        return newActivities
+      })
+    } else if (type === 'job.started') {
+      setJobs((prev) => {
+        const newJobs = new Map(prev)
+        const existing = newJobs.get(data.job_id as string)
+
+        // Don't overwrite if job already completed/failed (defensive against out-of-order events)
+        if (existing && (existing.status === 'completed' || existing.status === 'failed')) {
+          return newJobs
+        }
+
+        const job: TimelineJob = {
+          id: data.job_id as string,
+          pluginName: data.plugin_name as string,
+          pluginColor: (data.plugin_color as string) || '#6366F1',
+          documentId: data.document_id as string,
+          documentName: (data.document_name as string) || 'Unknown',
+          progress: 0,
+          progressMessage: 'Starting...',
+          status: 'running',
+          startedAt: parseTimestamp(data.started_at as string),
+        }
+        newJobs.set(job.id, job)
+        return newJobs
+      })
     } else if (type === 'job.progress') {
       setJobs((prev) => {
         const newJobs = new Map(prev)
@@ -440,13 +568,31 @@ export function useTimelineEventsSingleton() {
       setJobs((prev) => {
         const newJobs = new Map(prev)
         const existing = newJobs.get(data.job_id as string)
+        const endTime = parseTimestamp(data.completed_at as string)
+
         if (existing) {
           newJobs.set(data.job_id as string, {
             ...existing,
             progress: 100,
             progressMessage: 'Completed',
             status: 'completed',
-            endedAt: new Date(data.completed_at as string),
+            endedAt: endTime,
+          })
+        } else {
+          // CREATE job from completed event (job.started was missed - outside buffer window)
+          const durationMs =
+            (data.duration_ms as number) || ((data.duration_seconds as number) || 1) * 1000
+          newJobs.set(data.job_id as string, {
+            id: data.job_id as string,
+            pluginName: data.plugin_name as string,
+            pluginColor: (data.plugin_color as string) || '#6366F1',
+            documentId: data.document_id as string,
+            documentName: (data.document_name as string) || 'Unknown',
+            progress: 100,
+            progressMessage: 'Completed',
+            status: 'completed',
+            startedAt: new Date(endTime.getTime() - durationMs),
+            endedAt: endTime,
           })
         }
         return newJobs
@@ -455,15 +601,53 @@ export function useTimelineEventsSingleton() {
       setJobs((prev) => {
         const newJobs = new Map(prev)
         const existing = newJobs.get(data.job_id as string)
+        const endTime = parseTimestamp(data.failed_at as string) || new Date()
+
         if (existing) {
           newJobs.set(data.job_id as string, {
             ...existing,
             status: 'failed',
-            error: data.error_message as string,
-            endedAt: new Date(),
+            error: (data.error_message as string) || (data.error as string),
+            endedAt: endTime,
+          })
+        } else {
+          // CREATE job from failed event (job.started was missed - outside buffer window)
+          const durationMs =
+            (data.duration_ms as number) || ((data.duration_seconds as number) || 1) * 1000
+          newJobs.set(data.job_id as string, {
+            id: data.job_id as string,
+            pluginName: data.plugin_name as string,
+            pluginColor: (data.plugin_color as string) || '#6366F1',
+            documentId: data.document_id as string,
+            documentName: (data.document_name as string) || 'Unknown',
+            progress: 0,
+            progressMessage: 'Failed',
+            status: 'failed',
+            error: (data.error_message as string) || (data.error as string),
+            startedAt: new Date(endTime.getTime() - durationMs),
+            endedAt: endTime,
           })
         }
         return newJobs
+      })
+    } else if (type === 'document.created' || type === 'document.updated' || type === 'document.deleted') {
+      setDocumentEvents((prev) => {
+        const newEvents = new Map(prev)
+        const docEvent: import('@/features/timeline/types').DocumentEvent = {
+          id: data.document_id as string,
+          documentId: data.document_id as string,
+          documentName: (data.original_filename as string) || 'Unknown',
+          documentType: data.document_type as string,
+          contentType: data.content_type as string,
+          sizeBytes: data.size_bytes as number,
+          eventType: type as 'document.created' | 'document.updated' | 'document.deleted',
+          timestamp: parseTimestamp(data.timestamp as string) || new Date(),
+          sourceId: data.source_id as string,
+          pluginName: 'Documents',
+          pluginColor: '#F59E0B',
+        }
+        newEvents.set(docEvent.id, docEvent)
+        return newEvents
       })
     }
   }, [])
@@ -479,6 +663,7 @@ export function useTimelineEventsSingleton() {
 
   const clearJobs = useCallback(() => {
     setJobs(new Map())
+    setSystemActivities(new Map())
   }, [])
 
   const activeJobs = Array.from(jobs.values()).filter((j) => j.status === 'running')
@@ -490,7 +675,11 @@ export function useTimelineEventsSingleton() {
     isConnected,
     connectionState,
     reconnectAttempts,
+    reconnect,
+    disconnect,
     jobs,
+    systemActivities,
+    documentEvents,
     activeJobs,
     recentJobs,
     clearJobs,

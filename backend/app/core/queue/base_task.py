@@ -33,7 +33,7 @@ class PluginTask(Task):
             "job_id": str(job_id) if job_id else None,
             "plugin_name": plugin_name,
             "result_summary": str(retval)[:200] if retval else None,
-            "completed_at": datetime.utcnow().isoformat(),
+            "completed_at": datetime.utcnow().isoformat() + "Z",
         }
 
         # Add result details if available
@@ -72,7 +72,7 @@ class PluginTask(Task):
                 "plugin_name": plugin_name,
                 "error": str(exc),
                 "error_type": type(exc).__name__,
-                "failed_at": datetime.utcnow().isoformat(),
+                "failed_at": datetime.utcnow().isoformat() + "Z",
             },
         )
 
@@ -90,7 +90,7 @@ class PluginTask(Task):
                 "job_id": job_id,
                 "progress": progress,
                 "message": message,
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.utcnow().isoformat() + "Z",
             },
         )
 
@@ -102,7 +102,7 @@ class PluginTask(Task):
             "job_id": job_id,
             "document_id": document_id,
             "plugin_name": plugin_name,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             **extra,
         }
 

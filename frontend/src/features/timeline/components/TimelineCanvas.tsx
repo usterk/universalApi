@@ -85,7 +85,7 @@ export function TimelineCanvas({
 
             {/* Playhead Cursor (absolute positioned overlay) */}
             <div
-              className="absolute top-0 bottom-0 pointer-events-none left-32 sm:left-40"
+              className="absolute top-0 bottom-0 pointer-events-none left-32 sm:left-40 overflow-visible"
               style={{ width: `${viewport.width}px` }}
             >
               <PlayheadCursor viewport={viewport} />

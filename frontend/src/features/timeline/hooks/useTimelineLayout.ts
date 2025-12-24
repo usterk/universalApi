@@ -1,4 +1,4 @@
-// Timeline layout computation hook
+// Timeline layout computation hook (simplified - no sublanes)
 
 import { useMemo } from 'react'
 import type { TimelineJob } from '@/core/hooks/useSSE'
@@ -7,17 +7,15 @@ import type {
   TimelineViewport,
   TimelineFilters,
   PluginSection,
-  SubLane,
-  EventType,
+  SystemActivity,
 } from '../types'
-import { jobToEvent, formatSublaneLabel } from '../types'
+import { jobToEvent, systemActivityToEvent } from '../types'
 import { assignLanes, groupBy } from '../utils/layoutAlgorithm'
 
 // Layout constants
 const PLUGIN_HEADER_HEIGHT = 36
-const SUBLANE_ROW_HEIGHT = 32
-const SUBLANE_PADDING = 4
-const PLUGIN_SECTION_PADDING = 8
+const ROW_HEIGHT = 32
+const SECTION_PADDING = 8
 
 export interface UseTimelineLayoutResult {
   pluginSections: PluginSection[]
@@ -27,36 +25,25 @@ export interface UseTimelineLayoutResult {
 
 /**
  * Hook for computing timeline layout with lane assignments
- * Handles filtering, grouping, overlap detection, and height calculation
+ * Simplified: one row per plugin, no sublanes
  */
 export function useTimelineLayout(
   jobs: Map<string, TimelineJob>,
+  systemActivities: Map<string, SystemActivity>,
+  documentEvents: Map<string, import('../types').DocumentEvent>,
   viewport: TimelineViewport,
   filters: TimelineFilters,
   collapsedPlugins: Set<string>
 ): UseTimelineLayoutResult {
   return useMemo(() => {
-    // Convert jobs to events for each event type
     const allEvents: TimelineEvent[] = []
+    const systemEvents: TimelineEvent[] = []
 
-    jobs.forEach((job) => {
-      // Create event for the job's current lifecycle stage
-      // For now, we'll infer the event type from the job status
-      let eventType: EventType
+    // Process system activities first
+    systemActivities.forEach((activity) => {
+      const event = systemActivityToEvent(activity)
 
-      if (job.status === 'failed') {
-        eventType = 'job.failed'
-      } else if (job.status === 'completed') {
-        eventType = 'job.completed'
-      } else if (job.progress > 0) {
-        eventType = 'job.progress'
-      } else {
-        eventType = 'job.started'
-      }
-
-      const event = jobToEvent(job, eventType)
-
-      // Filter by time window (with buffer for partial visibility)
+      // Filter by time window
       const eventEnd = event.endedAt?.getTime() || Date.now()
       if (
         eventEnd < viewport.startTime ||
@@ -65,13 +52,34 @@ export function useTimelineLayout(
         return // Skip events outside time window
       }
 
-      // Filter by active filters
-      const isPluginEnabled =
-        filters.plugins.size === 0 || filters.plugins.has(event.pluginName)
-      const isEventTypeEnabled = filters.eventTypes.has(event.eventType)
+      // Apply filters (System section uses 'System' as plugin name)
+      const isSystemEnabled = !filters.plugins.has('System')
       const isStatusEnabled = filters.statuses.has(event.status)
 
-      if (isPluginEnabled && isEventTypeEnabled && isStatusEnabled) {
+      if (isSystemEnabled && isStatusEnabled) {
+        systemEvents.push(event)
+      }
+    })
+
+    // Process job events
+    jobs.forEach((job) => {
+      const event = jobToEvent(job)
+
+      // Filter by time window
+      const eventEnd = event.endedAt?.getTime() || Date.now()
+      if (
+        eventEnd < viewport.startTime ||
+        event.startedAt.getTime() > viewport.endTime
+      ) {
+        return // Skip events outside time window
+      }
+
+      // Apply filters
+      // Plugins IN filters.plugins are DISABLED (hidden)
+      const isPluginEnabled = !filters.plugins.has(event.pluginName)
+      const isStatusEnabled = filters.statuses.has(event.status)
+
+      if (isPluginEnabled && isStatusEnabled) {
         allEvents.push(event)
       }
     })
@@ -83,55 +91,89 @@ export function useTimelineLayout(
     const sections: PluginSection[] = []
     let totalHeight = 0
 
-    byPlugin.forEach((pluginEvents, pluginName) => {
-      // Group by event type (sublanes)
-      const bySublane = groupBy(pluginEvents, (e) => e.eventType)
-
-      const sublanes: SubLane[] = []
-
-      // Process each sublane
-      bySublane.forEach((sublaneEvents, eventType) => {
-        // Assign lanes for overlapping events
-        const laneAssignments = assignLanes(sublaneEvents)
-
-        // Apply lane assignments to events
-        sublaneEvents.forEach((event) => {
-          event.laneIndex = laneAssignments.get(event.id) || 0
-        })
-
-        const maxLane = Math.max(...Array.from(laneAssignments.values()), 0)
-        const rows = maxLane + 1
-
-        sublanes.push({
-          type: eventType,
-          label: formatSublaneLabel(eventType),
-          events: sublaneEvents,
-          rows,
-          height: rows * SUBLANE_ROW_HEIGHT + SUBLANE_PADDING,
-          isVisible: sublaneEvents.length > 0,
-        })
+    // Add System section first (if there are system events)
+    if (systemEvents.length > 0) {
+      const laneAssignments = assignLanes(systemEvents)
+      systemEvents.forEach((event) => {
+        event.laneIndex = laneAssignments.get(event.id) || 0
       })
 
-      // Filter to only visible sublanes
-      const visibleSublanes = sublanes.filter((sl) => sl.isVisible)
+      const maxLane = Math.max(...Array.from(laneAssignments.values()), 0)
+      const rows = maxLane + 1
 
-      if (visibleSublanes.length === 0) {
-        return // Skip plugins with no visible events
+      const isCollapsed = collapsedPlugins.has('System')
+      const contentHeight = isCollapsed ? 0 : rows * ROW_HEIGHT + SECTION_PADDING
+      const sectionHeight = PLUGIN_HEADER_HEIGHT + contentHeight
+
+      sections.push({
+        pluginName: 'System',
+        pluginColor: '#22C55E', // System green
+        isCollapsed,
+        events: systemEvents,
+        rows: isCollapsed ? 0 : rows,
+        totalHeight: sectionHeight,
+        isSystem: true,
+      })
+
+      totalHeight += sectionHeight
+    }
+
+    // Add Documents section
+    if (documentEvents.size > 0) {
+      const docEventsArray = Array.from(documentEvents.values())
+
+      // Filter by time window
+      const filteredDocEvents = docEventsArray.filter((event) => {
+        const eventTime = event.timestamp.getTime()
+        return eventTime >= viewport.startTime && eventTime <= viewport.endTime
+      })
+
+      if (filteredDocEvents.length > 0) {
+        const isCollapsed = collapsedPlugins.has('Documents')
+        const rows = 1
+        const contentHeight = isCollapsed ? 0 : rows * ROW_HEIGHT + SECTION_PADDING
+        const sectionHeight = PLUGIN_HEADER_HEIGHT + contentHeight
+
+        sections.push({
+          pluginName: 'Documents',
+          pluginColor: '#F59E0B',
+          isCollapsed,
+          events: [],
+          documentEvents: filteredDocEvents,
+          rows: isCollapsed ? 0 : rows,
+          totalHeight: sectionHeight,
+          isDocuments: true,
+        })
+
+        totalHeight += sectionHeight
       }
+    }
+
+    // Add plugin sections
+    byPlugin.forEach((pluginEvents, pluginName) => {
+      if (pluginEvents.length === 0) return
+
+      // Assign lanes for overlapping events (single pool, no sublanes)
+      const laneAssignments = assignLanes(pluginEvents)
+
+      // Apply lane assignments to events
+      pluginEvents.forEach((event) => {
+        event.laneIndex = laneAssignments.get(event.id) || 0
+      })
+
+      const maxLane = Math.max(...Array.from(laneAssignments.values()), 0)
+      const rows = maxLane + 1
 
       const isCollapsed = collapsedPlugins.has(pluginName)
-      const sublaneHeight = isCollapsed
-        ? 0
-        : visibleSublanes.reduce((sum, sl) => sum + sl.height, 0)
-
-      const sectionHeight =
-        PLUGIN_HEADER_HEIGHT + sublaneHeight + PLUGIN_SECTION_PADDING
+      const contentHeight = isCollapsed ? 0 : rows * ROW_HEIGHT + SECTION_PADDING
+      const sectionHeight = PLUGIN_HEADER_HEIGHT + contentHeight
 
       sections.push({
         pluginName,
         pluginColor: pluginEvents[0]?.pluginColor || '#6366F1',
         isCollapsed,
-        sublanes: visibleSublanes,
+        events: pluginEvents,
+        rows: isCollapsed ? 0 : rows,
         totalHeight: sectionHeight,
       })
 
@@ -141,7 +183,7 @@ export function useTimelineLayout(
     return {
       pluginSections: sections,
       totalHeight,
-      visibleEventCount: allEvents.length,
+      visibleEventCount: allEvents.length + systemEvents.length,
     }
-  }, [jobs, viewport.startTime, viewport.endTime, filters, collapsedPlugins])
+  }, [jobs, systemActivities, documentEvents, viewport.startTime, viewport.endTime, filters, collapsedPlugins])
 }

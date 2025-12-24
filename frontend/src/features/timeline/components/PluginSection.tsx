@@ -1,12 +1,17 @@
-// Plugin section component with sublanes for different event types
+// Plugin section component (simplified - no sublanes)
 
 import type {
   PluginSection as PluginSectionType,
   TimelineViewport,
   TimelineEvent,
 } from '../types'
-import { SubLane } from './SubLane'
 import { PluginHeader } from './PluginHeader'
+import { EventBar } from './EventBar'
+import { DocumentEventPoint } from './DocumentEventPoint'
+
+// Layout constants
+const ROW_HEIGHT = 32
+const SECTION_PADDING = 8
 
 interface PluginSectionProps {
   section: PluginSectionType
@@ -23,11 +28,7 @@ export function PluginSection({
   onEventClick,
   onToggleCollapse,
 }: PluginSectionProps) {
-  // Count total events in all sublanes
-  const eventCount = section.sublanes.reduce(
-    (sum, sublane) => sum + sublane.events.length,
-    0
-  )
+  const contentHeight = section.rows * ROW_HEIGHT + SECTION_PADDING
 
   return (
     <div className="border-b">
@@ -36,21 +37,44 @@ export function PluginSection({
         pluginName={section.pluginName}
         pluginColor={section.pluginColor}
         isCollapsed={section.isCollapsed}
-        eventCount={eventCount}
+        eventCount={section.events.length}
         onToggleCollapse={() => onToggleCollapse?.(section.pluginName)}
+        isSystem={section.isSystem}
       />
 
-      {/* Sublanes (only shown when not collapsed) */}
-      {!section.isCollapsed &&
-        section.sublanes.map((sublane) => (
-          <SubLane
-            key={sublane.type}
-            sublane={sublane}
-            viewport={viewport}
-            selectedEventId={selectedEventId}
-            onEventClick={onEventClick}
-          />
-        ))}
+      {/* Events container (only shown when not collapsed) */}
+      {!section.isCollapsed && (
+        <div className="border-t border-muted/30">
+          <div className="flex items-start" style={{ height: `${contentHeight}px` }}>
+            {/* Empty spacer for plugin name column */}
+            <div className="w-32 sm:w-40 flex-shrink-0" />
+
+            {/* Events render area */}
+            <div className="flex-1 relative" style={{ height: `${contentHeight}px` }}>
+              {section.events.map((event) => (
+                <EventBar
+                  key={event.id}
+                  event={event}
+                  viewport={viewport}
+                  isSelected={selectedEventId === event.id}
+                  onClick={onEventClick}
+                />
+              ))}
+
+              {/* Document events (if this is Documents section) */}
+              {section.isDocuments && section.documentEvents && (
+                section.documentEvents.map((event) => (
+                  <DocumentEventPoint
+                    key={event.id}
+                    event={event}
+                    viewport={viewport}
+                  />
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

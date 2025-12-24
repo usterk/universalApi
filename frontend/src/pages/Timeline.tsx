@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Header } from '@/components/layout/Header'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Settings2 } from 'lucide-react'
 import { useTimelineEvents } from '@/core/contexts/SSEContext'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/core/api/client'
@@ -19,7 +20,7 @@ import { useEventSelection } from '@/features/timeline/hooks/useEventSelection'
 const COLLAPSED_PLUGINS_KEY = 'timeline-collapsed-plugins'
 
 export function Timeline() {
-  const { isConnected, jobs } = useTimelineEvents()
+  const { isConnected, jobs, systemActivities, documentEvents } = useTimelineEvents()
 
   // Collapsed plugin state with localStorage persistence
   const [collapsedPlugins, setCollapsedPlugins] = useState<Set<string>>(() => {
@@ -67,6 +68,8 @@ export function Timeline() {
   const filtersHook = useTimelineFilters()
   const { pluginSections, visibleEventCount } = useTimelineLayout(
     jobs,
+    systemActivities,
+    documentEvents,
     viewportHook.viewport,
     filtersHook.filters,
     collapsedPlugins
@@ -74,10 +77,49 @@ export function Timeline() {
   const { selectedEvent, selectEvent, clearSelection } = useEventSelection()
 
   // Get plugins for colors and legend
-  const { data: plugins } = useQuery({
+  const { data: registeredPlugins } = useQuery({
     queryKey: ['plugins'],
     queryFn: () => api.getPlugins(),
   })
+
+  // Combine registered plugins with plugins found in actual jobs
+  // Also includes "System" section for system activities
+  const plugins = useMemo(() => {
+    const pluginMap = new Map<string, { name: string; display_name: string; color: string; isSystem?: boolean }>()
+
+    // Add System section first if there are system activities
+    if (systemActivities.size > 0) {
+      pluginMap.set('System', {
+        name: 'System',
+        display_name: 'System',
+        color: '#22C55E',
+        isSystem: true,
+      })
+    }
+
+    // Add registered plugins
+    registeredPlugins?.forEach((p) => {
+      pluginMap.set(p.name, p)
+    })
+
+    // Add any plugins from jobs that aren't in the registry
+    jobs.forEach((job) => {
+      if (!pluginMap.has(job.pluginName)) {
+        // Create a display name from the plugin name
+        const displayName = job.pluginName
+          .split('_')
+          .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ')
+        pluginMap.set(job.pluginName, {
+          name: job.pluginName,
+          display_name: displayName,
+          color: job.pluginColor || '#6366F1',
+        })
+      }
+    })
+
+    return Array.from(pluginMap.values())
+  }, [registeredPlugins, jobs, systemActivities])
 
   return (
     <div className="flex flex-col h-full">
@@ -155,10 +197,14 @@ export function Timeline() {
             <div className="flex flex-wrap gap-4">
               {plugins?.map((plugin) => (
                 <div key={plugin.name} className="flex items-center gap-2">
-                  <div
-                    className="w-3 h-3 rounded"
-                    style={{ backgroundColor: plugin.color }}
-                  />
+                  {'isSystem' in plugin && plugin.isSystem ? (
+                    <Settings2 className="w-3 h-3 text-emerald-500" />
+                  ) : (
+                    <div
+                      className="w-3 h-3 rounded"
+                      style={{ backgroundColor: plugin.color }}
+                    />
+                  )}
                   <span className="text-sm">{plugin.display_name}</span>
                 </div>
               ))}

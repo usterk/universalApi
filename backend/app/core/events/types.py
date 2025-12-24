@@ -42,6 +42,9 @@ class EventType(str, Enum):
     # System events
     SYSTEM_STARTUP = "system.startup"
     SYSTEM_SHUTDOWN = "system.shutdown"
+    SYSTEM_HEALTH_CHECK_STARTED = "system.health_check.started"
+    SYSTEM_HEALTH_CHECK_COMPLETED = "system.health_check.completed"
+    SYSTEM_HEALTH_CHECK_FAILED = "system.health_check.failed"
 
     # Custom (plugins can define their own)
     CUSTOM = "custom"

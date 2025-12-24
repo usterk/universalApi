@@ -30,7 +30,7 @@ class UploadPlugin(BasePlugin):
             priority=10,  # Highest priority - runs first
             dependencies=[],
             max_concurrent_jobs=10,
-            color="#10B981",  # Green
+            color="#F59E0B",  # Amber 500
             required_env_vars=[],
             settings_schema={
                 "type": "object",
@@ -110,13 +110,69 @@ class UploadPlugin(BasePlugin):
                 ],
             },
             {
+                "name": "code",
+                "display_name": "Source Code",
+                "mime_types": [
+                    # Python
+                    "text/x-python",
+                    "text/x-script.python",
+                    "application/x-python-code",
+                    # JavaScript/TypeScript
+                    "text/javascript",
+                    "application/javascript",
+                    "application/x-javascript",
+                    "text/x-typescript",
+                    "application/x-typescript",
+                    # Java
+                    "text/x-java-source",
+                    "text/x-java",
+                    # C/C++
+                    "text/x-c",
+                    "text/x-c++",
+                    "text/x-c++src",
+                    # Other common languages
+                    "text/x-go",
+                    "text/x-rust",
+                    "text/x-ruby",
+                    "text/x-php",
+                    "text/x-csharp",
+                    "text/x-swift",
+                    "text/x-kotlin",
+                ],
+            },
+            {
+                "name": "markdown",
+                "display_name": "Markdown Document",
+                "mime_types": [
+                    "text/markdown",
+                    "text/x-markdown",
+                ],
+            },
+            {
                 "name": "text",
                 "display_name": "Text File",
                 "mime_types": [
                     "text/plain",
-                    "text/markdown",
                     "text/html",
+                    "text/css",
                     "text/csv",
+                ],
+            },
+            {
+                "name": "xml",
+                "display_name": "XML Document",
+                "mime_types": [
+                    "application/xml",
+                    "text/xml",
+                ],
+            },
+            {
+                "name": "yaml",
+                "display_name": "YAML Document",
+                "mime_types": [
+                    "application/x-yaml",
+                    "text/yaml",
+                    "text/x-yaml",
                 ],
             },
             {

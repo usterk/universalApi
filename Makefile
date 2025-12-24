@@ -257,17 +257,47 @@ logs:
 app-start:
 	@echo "🚀 Starting UniversalAPI in background..."
 	@echo ""
-	@# Stop any existing services first (idempotent)
-	@-pkill -f "uvicorn app.main:app" 2>/dev/null || true
-	@-pkill -f "celery -A app.core.queue" 2>/dev/null || true
-	@-pkill -f "npm run dev" 2>/dev/null || true
-	@-pkill -f "vite" 2>/dev/null || true
-	@-pkill -f "honcho" 2>/dev/null || true
+
+	@# 1. Force cleanup ports FIRST (critical fix)
+	@echo "🧹 Cleaning up ports and processes..."
+	@-lsof -ti:8000 2>/dev/null | xargs kill -9 2>/dev/null || true
+	@-lsof -ti:5173 2>/dev/null | xargs kill -9 2>/dev/null || true
 	@sleep 1
+
+	@# 2. Stop any existing services (idempotent)
+	@-pkill -9 -f "uvicorn app.main:app" 2>/dev/null || true
+	@-pkill -9 -f "celery -A app.core.queue" 2>/dev/null || true
+	@-pkill -9 -f "npm run dev" 2>/dev/null || true
+	@-pkill -9 -f "vite" 2>/dev/null || true
+	@-pkill -9 -f "honcho" 2>/dev/null || true
+	@sleep 2
+
+	@# 3. Ensure logs directory AND files exist (prevents tee race condition)
 	@mkdir -p $(LOGS_DIR)
+	@touch $(LOGS_DIR)/backend.log
+	@touch $(LOGS_DIR)/frontend.log
+	@touch $(LOGS_DIR)/celery_worker.log
+	@touch $(LOGS_DIR)/celery_beat.log
+	@touch $(LOGS_DIR)/honcho.log
+
+	@# 4. Start Honcho (which will start Docker containers)
 	@nohup sh -c 'cd backend && poetry run honcho start -f ../Procfile.local' > $(LOGS_DIR)/honcho.log 2>&1 &
+	@echo ""
 	@echo "⏳ Waiting for services to start..."
-	@sleep 6
+
+	@# 5. Wait for Docker health (Docker is started by Honcho)
+	@./scripts/wait-for-services.sh || (echo "❌ Docker services failed to become healthy" && exit 1)
+
+	@# 6. Smart wait for backend health (up to 20 seconds)
+	@bash -c 'for i in {1..20}; do \
+		if curl -s http://localhost:8000/health > /dev/null 2>&1; then \
+			echo "✓ Backend is ready"; \
+			break; \
+		fi; \
+		sleep 1; \
+	done'
+
+	@# 7. Display status
 	@echo ""
 	@echo "=========================================="
 	@echo "SERVICE STATUS:"
@@ -293,10 +323,19 @@ app-start:
 	@echo "  Restart all:  make restart-all"
 	@echo "  Check status: make dev-health"
 	@echo ""
-	@if pgrep -f "honcho" >/dev/null 2>&1; then \
+
+	@# 8. Verify critical services are running (improved check)
+	@if pgrep -f "honcho" >/dev/null 2>&1 && pgrep -f "uvicorn app.main" >/dev/null 2>&1; then \
 		echo "✅ All services started successfully!"; \
 	else \
-		echo "⚠️  Warning: Honcho process not detected. Check logs: cat $(LOGS_DIR)/honcho.log"; \
+		echo "❌ ERROR: Services failed to start properly!"; \
+		echo ""; \
+		echo "Honcho process: $$(pgrep -f 'honcho' >/dev/null 2>&1 && echo '✓ Running' || echo '✗ Not found')"; \
+		echo "Backend process: $$(pgrep -f 'uvicorn app.main' >/dev/null 2>&1 && echo '✓ Running' || echo '✗ Not found')"; \
+		echo ""; \
+		echo "Last 20 lines of honcho.log:"; \
+		tail -20 $(LOGS_DIR)/honcho.log; \
+		exit 1; \
 	fi
 	@echo ""
 

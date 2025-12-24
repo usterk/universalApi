@@ -81,6 +81,7 @@ export default function App() {
         <Route path="timeline" element={<Timeline />} />
         <Route path="sources" element={<Sources />} />
         <Route path="documents" element={<Documents />} />
+        <Route path="documents/browser" element={<Navigate to="/documents" replace />} />
         <Route path="plugins" element={<Plugins />} />
         <Route path="transcriptions" element={<Transcriptions />} />
       </Route>

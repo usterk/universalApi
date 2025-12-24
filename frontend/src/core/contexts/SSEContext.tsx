@@ -1,13 +1,18 @@
 import { createContext, useContext, ReactNode, useEffect } from 'react'
 import { useTimelineEventsSingleton, ConnectionState } from '@/core/hooks/useSSESingleton'
 import type { TimelineJob } from '@/core/hooks/useSSE'
+import type { SystemActivity } from '@/features/timeline/types'
 import { log } from '@/core/utils/logger'
 
 interface SSEContextValue {
   isConnected: boolean
   connectionState: ConnectionState
   reconnectAttempts: number
+  reconnect: () => void
+  disconnect: () => void
   jobs: Map<string, TimelineJob>
+  systemActivities: Map<string, SystemActivity>
+  documentEvents: Map<string, import('@/features/timeline/types').DocumentEvent>
   activeJobs: TimelineJob[]
   recentJobs: TimelineJob[]
   clearJobs: () => void
@@ -47,7 +52,7 @@ export function useSSEConnection() {
   }
   return {
     isConnected: context.isConnected,
-    events: context.events,
+    connectionState: context.connectionState,
     reconnect: context.reconnect,
     disconnect: context.disconnect,
   }

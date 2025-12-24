@@ -129,3 +129,107 @@ class TestUploadDocumentRetrieval:
         # Response could be list or paginated object
         data = response.json()
         assert isinstance(data, (list, dict))
+
+
+@pytest.mark.e2e
+@pytest.mark.plugin
+@pytest.mark.asyncio
+class TestUnicodeFilenames:
+    """E2E tests for Unicode filename handling (RFC 2231)."""
+
+    async def test_download_file_with_emoji_filename(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict,
+    ):
+        """Test downloading file with emoji in filename."""
+        # Create a test file with emoji
+        file_content = b"Test content with emoji"
+        filename = "test_file_🎯_emoji.txt"
+
+        # Upload file
+        upload_response = await async_client.post(
+            "/api/v1/plugins/upload/files",
+            files={"file": (filename, file_content, "text/plain")},
+            headers=auth_headers,
+        )
+        assert upload_response.status_code in [200, 201]
+        document_id = upload_response.json()["id"]
+
+        # Download file
+        download_response = await async_client.get(
+            f"/api/v1/plugins/upload/files/{document_id}/content",
+            headers=auth_headers,
+        )
+        assert download_response.status_code == 200
+        assert download_response.content == file_content
+
+        # Check Content-Disposition header uses RFC 2231 encoding
+        content_disp = download_response.headers.get("content-disposition")
+        assert content_disp is not None
+        assert "filename*=UTF-8''" in content_disp
+        # Emoji will be percent-encoded
+        assert "test_file_" in content_disp
+
+    async def test_download_file_with_unicode_accents(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict,
+    ):
+        """Test downloading file with accented characters in filename."""
+        file_content = b"Test content"
+        filename = "café_résumé_naïve.txt"
+
+        # Upload file
+        upload_response = await async_client.post(
+            "/api/v1/plugins/upload/files",
+            files={"file": (filename, file_content, "text/plain")},
+            headers=auth_headers,
+        )
+        assert upload_response.status_code in [200, 201]
+        document_id = upload_response.json()["id"]
+
+        # Download file
+        download_response = await async_client.get(
+            f"/api/v1/plugins/upload/files/{document_id}/content",
+            headers=auth_headers,
+        )
+        assert download_response.status_code == 200
+        assert download_response.content == file_content
+
+        # Check Content-Disposition header
+        content_disp = download_response.headers.get("content-disposition")
+        assert content_disp is not None
+        assert "filename*=UTF-8''" in content_disp
+
+    async def test_download_file_ascii_filename(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict,
+    ):
+        """Test downloading file with ASCII-only filename uses simple format."""
+        file_content = b"Test content"
+        filename = "simple_test_file.txt"
+
+        # Upload file
+        upload_response = await async_client.post(
+            "/api/v1/plugins/upload/files",
+            files={"file": (filename, file_content, "text/plain")},
+            headers=auth_headers,
+        )
+        assert upload_response.status_code in [200, 201]
+        document_id = upload_response.json()["id"]
+
+        # Download file
+        download_response = await async_client.get(
+            f"/api/v1/plugins/upload/files/{document_id}/content",
+            headers=auth_headers,
+        )
+        assert download_response.status_code == 200
+
+        # ASCII filenames should use simple quoted format
+        content_disp = download_response.headers.get("content-disposition")
+        assert content_disp is not None
+        assert f'filename="{filename}"' in content_disp
+        # Should NOT use RFC 2231 format for ASCII names
+        assert "filename*=" not in content_disp
