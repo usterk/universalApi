@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import { Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -7,6 +8,7 @@ import { api } from '@/core/api/client'
 import { cn } from '@/lib/utils'
 
 export function UploadTab() {
+  const navigate = useNavigate()
   const [uploadItems, setUploadItems] = useState<UploadItem[]>([])
   const [isDragging, setIsDragging] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -36,7 +38,7 @@ export function UploadTab() {
       )
 
       // Upload file with progress tracking
-      await api.uploadFile(item.file, undefined, (progress) => {
+      const response = await api.uploadFile(item.file, undefined, (progress) => {
         setUploadItems((prev) =>
           prev.map((i) => (i.id === item.id ? { ...i, progress } : i))
         )
@@ -49,6 +51,9 @@ export function UploadTab() {
 
       // Invalidate document queries to refresh the list
       queryClient.invalidateQueries({ queryKey: ['documents'] })
+
+      // Redirect to document detail page
+      navigate(`/documents/${response.id}`)
     } catch (error) {
       // Mark as error
       setUploadItems((prev) =>

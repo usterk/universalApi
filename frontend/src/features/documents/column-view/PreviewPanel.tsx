@@ -1,4 +1,5 @@
-import { X, FileText, Calendar, HardDrive } from 'lucide-react'
+import { X, FileText, Calendar, HardDrive, ExternalLink } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { FilePreview } from '@/components/features/FilePreview'
@@ -30,6 +31,8 @@ function formatDate(dateString: string): string {
 }
 
 export function PreviewPanel({ document, isOpen, onClose }: PreviewPanelProps) {
+  const navigate = useNavigate()
+
   return (
     <div
       className={cn(
@@ -83,6 +86,19 @@ export function PreviewPanel({ document, isOpen, onClose }: PreviewPanelProps) {
                 <div className="font-medium">{formatDate(document.created_at)}</div>
               </div>
             </div>
+
+            {/* View Details Button */}
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                navigate(`/documents/${document.id}`)
+                onClose()
+              }}
+            >
+              <ExternalLink className="mr-2 h-4 w-4" />
+              View Full Details
+            </Button>
           </div>
         </div>
       )}
