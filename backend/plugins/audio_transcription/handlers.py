@@ -2,13 +2,15 @@
 
 from app.core.events.types import Event
 from app.core.queue.celery_app import celery_app
+from app.core.plugins.handler_wrapper import create_routing_aware_handler
 
 
-async def on_document_created(event: Event) -> None:
+async def _handle_document_created(event: Event) -> None:
     """
-    Handle document.created event.
+    Internal handler for document.created event.
 
-    If the document is an audio file, queue it for transcription.
+    Queues audio documents for transcription.
+    Called only after workflow routing validation passes.
     """
     payload = event.payload
     document_type = payload.get("document_type")
@@ -27,3 +29,10 @@ async def on_document_created(event: Event) -> None:
         args=[document_id],
         queue="transcription",
     )
+
+
+# Export wrapped handler that respects workflow routing
+on_document_created = create_routing_aware_handler(
+    "audio_transcription",
+    _handle_document_created
+)
