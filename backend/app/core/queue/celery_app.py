@@ -50,7 +50,13 @@ celery_app.conf.update(
 )
 
 # Auto-discover tasks from plugins
-celery_app.autodiscover_tasks(["plugins"])
+# List all plugin packages explicitly for Celery autodiscovery
+celery_app.autodiscover_tasks([
+    "plugins.upload",
+    "plugins.audio_transcription",
+    "plugins.audio_transcription_words",
+    "plugins.audio_transcription_diarize",
+])
 
 # Initialize structured logging for Celery
 setup_logging(

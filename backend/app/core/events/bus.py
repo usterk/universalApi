@@ -97,13 +97,16 @@ class EventBus:
 
         # 1. Notify subscribers (async)
         handlers = self._subscribers.get(type_str, []) + self._subscribers.get("*", [])
+        logger.info(f"Event {type_str}: {len(handlers)} handlers registered, calling them now")
 
         for handler in handlers:
             try:
+                logger.info(f"Calling handler: {handler.__name__ if hasattr(handler, '__name__') else handler}")
                 if asyncio.iscoroutinefunction(handler):
                     await handler(event)
                 else:
                     handler(event)
+                logger.info(f"Handler {handler.__name__ if hasattr(handler, '__name__') else handler} completed")
             except Exception as e:
                 logger.error(f"Handler error for {type_str}: {e}")
 
