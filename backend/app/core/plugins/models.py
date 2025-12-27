@@ -67,6 +67,73 @@ class PluginFilter(Base, UUIDMixin, TimestampMixin):
         return f"<PluginFilter {self.plugin_name} {self.filter_type}:{self.operator}>"
 
 
+class SourceWorkflowStep(Base, UUIDMixin, TimestampMixin):
+    """
+    Krok w workflow przetwarzania dla danego źródła i typu dokumentu.
+
+    Przykład: Source "Phone" dla typu "audio":
+      Step 1: audio_transcription (audio → transcription)
+      Step 2: sentiment_analysis (transcription → sentiment)
+    """
+
+    __tablename__ = "source_workflow_steps"
+
+    source_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("sources.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    document_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    plugin_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_source_workflow_unique", "source_id", "document_type", "sequence_number", unique=True),
+        Index("idx_source_workflow_source", "source_id"),
+        Index("idx_source_workflow_type", "source_id", "document_type"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<SourceWorkflowStep {self.source_id}:{self.document_type}[{self.sequence_number}] → {self.plugin_name}>"
+
+
+class UserWorkflowStep(Base, UUIDMixin, TimestampMixin):
+    """
+    User default workflow step for document processing.
+    Imported to new sources automatically on creation.
+
+    Przykład: User default dla typu "audio":
+      Step 1: audio_transcription (audio → transcription)
+      Step 2: sentiment_analysis (transcription → sentiment)
+    """
+
+    __tablename__ = "user_workflow_steps"
+
+    user_id: Mapped[UUID] = mapped_column(
+        PG_UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False
+    )
+    document_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    plugin_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Indexes
+    __table_args__ = (
+        Index("idx_user_workflow_unique", "user_id", "document_type", "sequence_number", unique=True),
+        Index("idx_user_workflow_user", "user_id"),
+        Index("idx_user_workflow_type", "user_id", "document_type"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserWorkflowStep {self.user_id}:{self.document_type}[{self.sequence_number}] → {self.plugin_name}>"
+
+
 class JobStatus(str, Enum):
     """Processing job status."""
 

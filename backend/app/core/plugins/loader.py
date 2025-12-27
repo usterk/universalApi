@@ -224,4 +224,7 @@ class PluginLoader:
             plugin._state = PluginState.ERROR
             raise PluginLoadError(f"Plugin {name} setup failed: {e}")
 
+        # NOTE: Event handlers are registered in main.py after all plugins are loaded
+        # to avoid duplicate registration
+
         return plugin
