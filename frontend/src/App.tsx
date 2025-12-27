@@ -6,9 +6,11 @@ import { Login } from '@/pages/Login'
 import { Dashboard } from '@/pages/Dashboard'
 import { Timeline } from '@/pages/Timeline'
 import { Sources } from '@/pages/Sources'
+import { SourceDetail } from '@/pages/SourceDetail'
 import { Documents } from '@/pages/Documents'
+import { DocumentDetailPage } from '@/pages/DocumentDetailPage'
 import { Plugins } from '@/pages/Plugins'
-import { Transcriptions } from '@/pages/Transcriptions'
+import { UserWorkflows } from '@/pages/UserWorkflows'
 import { useAuthStore } from '@/core/stores/auth'
 import { api } from '@/core/api/client'
 import { SSEProvider } from '@/core/contexts/SSEContext'
@@ -80,10 +82,12 @@ export default function App() {
         <Route index element={<Dashboard />} />
         <Route path="timeline" element={<Timeline />} />
         <Route path="sources" element={<Sources />} />
+        <Route path="sources/:id" element={<SourceDetail />} />
         <Route path="documents" element={<Documents />} />
+        <Route path="documents/:id" element={<DocumentDetailPage />} />
         <Route path="documents/browser" element={<Navigate to="/documents" replace />} />
         <Route path="plugins" element={<Plugins />} />
-        <Route path="transcriptions" element={<Transcriptions />} />
+        <Route path="workflows" element={<UserWorkflows />} />
       </Route>
 
       {/* Catch all */}

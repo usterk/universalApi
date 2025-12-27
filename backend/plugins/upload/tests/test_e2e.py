@@ -49,6 +49,34 @@ class TestUploadE2E:
         assert response.status_code in [200, 201]
         data = response.json()
         assert "id" in data
+        assert data["document_type"] == "audio", "Should detect audio type from content_type"
+
+    async def test_upload_audio_file_without_mime_type(
+        self,
+        async_client: AsyncClient,
+        auth_headers: dict,
+        sample_audio_upload: tuple,
+    ):
+        """Upload audio file WITHOUT content_type should auto-detect as audio.
+
+        This test ensures MIME type detection works even when HTTP headers
+        don't provide correct content_type (e.g., curl uploads).
+        """
+        content, filename, _ = sample_audio_upload  # Ignore provided content_type
+
+        response = await async_client.post(
+            "/api/v1/plugins/upload/files",
+            headers=auth_headers,
+            files={
+                # Upload with application/octet-stream (default when MIME not specified)
+                "file": (filename, content, "application/octet-stream"),
+            },
+        )
+
+        assert response.status_code in [200, 201]
+        data = response.json()
+        assert "id" in data
+        assert data["document_type"] == "audio", "Should auto-detect audio type from content even without HTTP content_type"
 
     async def test_upload_requires_auth(
         self,

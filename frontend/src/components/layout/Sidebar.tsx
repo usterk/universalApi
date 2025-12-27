@@ -1,13 +1,13 @@
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
-  FileAudio,
   Upload,
   Database,
   Plug,
   Settings,
   LogOut,
   Radio,
+  GitBranch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ const navigation = [
   { name: 'Timeline', href: '/timeline', icon: Radio },
   { name: 'Sources', href: '/sources', icon: Upload },
   { name: 'Documents', href: '/documents', icon: Database },
-  { name: 'Transcriptions', href: '/transcriptions', icon: FileAudio },
+  { name: 'Workflows', href: '/workflows', icon: GitBranch },
   { name: 'Plugins', href: '/plugins', icon: Plug },
 ]
 

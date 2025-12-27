@@ -8,6 +8,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import hljs from 'highlight.js'
 import 'highlight.js/styles/github-dark.css'
+import { TranscriptionPreview } from '@/features/documents/preview/TranscriptionPreview'
 
 interface FilePreviewProps {
   document: Document
@@ -105,6 +106,14 @@ export function FilePreview({ document, maxHeight = '70vh', className = '' }: Fi
     } catch {
       setError('Failed to download file')
     }
+  }
+
+  // Check if this is a transcription document (Universal Document Pattern)
+  const isTranscription = document.type_name === 'transcription' || document.type_name === 'transcription_words'
+
+  // Render transcription preview for transcription documents
+  if (isTranscription) {
+    return <TranscriptionPreview document={document} maxHeight={maxHeight} className={className} />
   }
 
   // Render preview based on content type

@@ -1,6 +1,7 @@
 """Upload plugin router."""
 
 import hashlib
+import mimetypes
 import os
 from datetime import datetime
 from pathlib import Path
@@ -32,6 +33,41 @@ class UploadResponse(BaseModel):
     size_bytes: int
     document_type: str
     created_at: str
+
+
+def detect_mime_type(filename: str, content: bytes) -> str:
+    """
+    Detect MIME type from filename and content.
+
+    Uses filename extension first, with content-based detection as fallback.
+    """
+    # Try to guess from filename extension
+    guessed_type, _ = mimetypes.guess_type(filename)
+    if guessed_type:
+        return guessed_type
+
+    # Fallback: basic magic number detection
+    if len(content) >= 4:
+        # MP3 audio
+        if content[:2] == b'\xff\xfb' or content[:2] == b'\xff\xf3' or content[:2] == b'\xff\xf2':
+            return 'audio/mpeg'
+        # PNG image
+        if content[:8] == b'\x89PNG\r\n\x1a\n':
+            return 'image/png'
+        # JPEG image
+        if content[:2] == b'\xff\xd8':
+            return 'image/jpeg'
+        # GIF image
+        if content[:3] == b'GIF':
+            return 'image/gif'
+        # PDF
+        if content[:4] == b'%PDF':
+            return 'application/pdf'
+        # WAV audio
+        if content[:4] == b'RIFF' and content[8:12] == b'WAVE':
+            return 'audio/wav'
+
+    return 'application/octet-stream'
 
 
 def get_document_type_for_mime(mime_type: str, doc_types: list[DocumentType]) -> DocumentType | None:
@@ -100,9 +136,13 @@ async def upload_file(
     if isinstance(auth, Source):
         owner_id = auth.owner_id
         source_id = auth.id
-    else:  # User
+    else:  # User - JWT token
         owner_id = auth.id
-        source_id = None
+        # Get or create Manual source for this user
+        from app.core.sources.service import get_or_create_manual_source
+
+        manual_source = await get_or_create_manual_source(db, owner_id)
+        source_id = manual_source.id
 
     # Read file content
     content = await file.read()
@@ -120,8 +160,14 @@ async def upload_file(
     result = await db.execute(select(DocumentType))
     doc_types = list(result.scalars().all())
 
-    # Find matching document type
-    content_type = file.content_type or "application/octet-stream"
+    # Detect MIME type (use HTTP header if reliable, otherwise detect from content)
+    detected_mime = detect_mime_type(file.filename or "file", content)
+    # Prefer HTTP content type if it's specific, otherwise use detected
+    if file.content_type and file.content_type != "application/octet-stream":
+        content_type = file.content_type
+    else:
+        content_type = detected_mime
+
     doc_type = get_document_type_for_mime(content_type, doc_types)
 
     if doc_type is None:

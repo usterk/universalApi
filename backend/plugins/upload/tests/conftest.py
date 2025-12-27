@@ -7,6 +7,7 @@ import pytest
 
 # Import all shared fixtures
 from tests.conftest import *  # noqa: F401, F403
+from tests.e2e.conftest import *  # noqa: F401, F403
 
 
 @pytest.fixture

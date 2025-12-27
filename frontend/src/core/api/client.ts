@@ -96,6 +96,7 @@ export interface SourceCreate {
 
 export interface SourceWithKey extends Source {
   api_key: string
+  workflows_imported?: number
 }
 
 export interface DocumentType {
@@ -152,6 +153,43 @@ export interface ProcessingJob {
   started_at: string | null
   completed_at: string | null
   created_at: string
+}
+
+export interface WorkflowStep {
+  id: string
+  sequence_number: number
+  plugin_name: string
+  display_name: string
+  input_types: string[]
+  output_type: string | null
+  color: string
+  settings: Record<string, unknown>
+  is_enabled: boolean
+}
+
+export interface Workflow {
+  document_type: string
+  steps: WorkflowStep[]
+}
+
+export interface AvailablePlugin {
+  name: string
+  display_name: string
+  description: string
+  input_types: string[]
+  output_type: string | null
+  color: string
+  compatible_with_step: number | null
+}
+
+export interface AddWorkflowStepRequest {
+  plugin_name: string
+  sequence_number: number
+  settings?: Record<string, unknown>
+}
+
+export interface ReorderWorkflowRequest {
+  steps: Array<{ id: string; sequence_number: number }>
 }
 
 export interface PaginatedResponse<T> {
@@ -255,6 +293,98 @@ export const api = {
 
   regenerateSourceKey: async (id: string): Promise<{ api_key: string }> => {
     const response = await apiClient.post(`/sources/${id}/regenerate-key`)
+    return response.data
+  },
+
+  // Workflows
+  getWorkflow: async (sourceId: string, documentType: string): Promise<Workflow> => {
+    const response = await apiClient.get(`/sources/${sourceId}/workflows/${documentType}`)
+    return response.data
+  },
+
+  getAvailablePluginsForWorkflow: async (
+    sourceId: string,
+    documentType: string,
+    currentStep?: number
+  ): Promise<AvailablePlugin[]> => {
+    const params = currentStep ? { current_step: currentStep } : {}
+    const response = await apiClient.get(
+      `/sources/${sourceId}/workflows/${documentType}/available-plugins`,
+      { params }
+    )
+    return response.data
+  },
+
+  addWorkflowStep: async (
+    sourceId: string,
+    documentType: string,
+    data: AddWorkflowStepRequest
+  ): Promise<WorkflowStep> => {
+    const response = await apiClient.post(
+      `/sources/${sourceId}/workflows/${documentType}/steps`,
+      data
+    )
+    return response.data
+  },
+
+  deleteWorkflowStep: async (
+    sourceId: string,
+    documentType: string,
+    stepId: string
+  ): Promise<void> => {
+    await apiClient.delete(`/sources/${sourceId}/workflows/${documentType}/steps/${stepId}`)
+  },
+
+  reorderWorkflow: async (
+    sourceId: string,
+    documentType: string,
+    data: ReorderWorkflowRequest
+  ): Promise<Workflow> => {
+    const response = await apiClient.put(
+      `/sources/${sourceId}/workflows/${documentType}/reorder`,
+      data
+    )
+    return response.data
+  },
+
+  // User Workflows
+  getUserWorkflow: async (documentType: string): Promise<Workflow> => {
+    const response = await apiClient.get(`/workflows/${documentType}`)
+    return response.data
+  },
+
+  getAvailablePluginsForUserWorkflow: async (
+    documentType: string,
+    currentStep?: number
+  ): Promise<AvailablePlugin[]> => {
+    const params = currentStep ? { current_step: currentStep } : {}
+    const response = await apiClient.get(
+      `/workflows/${documentType}/available-plugins`,
+      { params }
+    )
+    return response.data
+  },
+
+  addUserWorkflowStep: async (
+    documentType: string,
+    data: AddWorkflowStepRequest
+  ): Promise<WorkflowStep> => {
+    const response = await apiClient.post(`/workflows/${documentType}/steps`, data)
+    return response.data
+  },
+
+  deleteUserWorkflowStep: async (
+    documentType: string,
+    stepId: string
+  ): Promise<void> => {
+    await apiClient.delete(`/workflows/${documentType}/steps/${stepId}`)
+  },
+
+  reorderUserWorkflow: async (
+    documentType: string,
+    data: ReorderWorkflowRequest
+  ): Promise<Workflow> => {
+    const response = await apiClient.put(`/workflows/${documentType}/reorder`, data)
     return response.data
   },
 

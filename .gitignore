@@ -85,3 +85,6 @@ celerybeat.pid
 
 # Redis dumps
 dump.rdb
+
+# Auto Claude data directory
+.auto-claude/

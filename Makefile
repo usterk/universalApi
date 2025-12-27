@@ -429,7 +429,7 @@ celery-start:
 	@-pkill -f "celery -A app.core.queue" 2>/dev/null || true
 	@sleep 0.5
 	@mkdir -p $(LOGS_DIR)
-	@cd backend && poetry run celery -A app.core.queue.celery_app worker --loglevel=info >> ../$(LOGS_DIR)/celery_worker.log 2>&1 &
+	@cd backend && poetry run celery -A app.core.queue.celery_app worker -Q default,upload,transcription,analyzer,detection,search --loglevel=info >> ../$(LOGS_DIR)/celery_worker.log 2>&1 &
 	@cd backend && poetry run celery -A app.core.queue.celery_app beat --loglevel=info >> ../$(LOGS_DIR)/celery_beat.log 2>&1 &
 	@echo "✓ Celery started. Logs: $(LOGS_DIR)/celery_*.log"
 
@@ -939,7 +939,7 @@ restart-app:
 	@sleep 1
 	@cd backend && poetry run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 >> ../$(LOGS_DIR)/backend.log 2>&1 &
 	@cd frontend && npm run dev >> ../$(LOGS_DIR)/frontend.log 2>&1 &
-	@cd backend && poetry run celery -A app.core.queue.celery_app worker --loglevel=info >> ../$(LOGS_DIR)/celery_worker.log 2>&1 &
+	@cd backend && poetry run celery -A app.core.queue.celery_app worker -Q default,upload,transcription,analyzer,detection,search --loglevel=info >> ../$(LOGS_DIR)/celery_worker.log 2>&1 &
 	@cd backend && poetry run celery -A app.core.queue.celery_app beat --loglevel=info >> ../$(LOGS_DIR)/celery_beat.log 2>&1 &
 	@echo "App components restarted."
 

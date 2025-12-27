@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plus, Copy, RefreshCw, Trash2, MoreHorizontal } from 'lucide-react'
 import { Header } from '@/components/layout/Header'
@@ -143,6 +144,7 @@ function CreateSourceDialog() {
 }
 
 function SourceCard({ source }: { source: Source }) {
+  const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [showKey, setShowKey] = useState(false)
   const [newKey, setNewKey] = useState<string | null>(null)
@@ -163,7 +165,10 @@ function SourceCard({ source }: { source: Source }) {
   })
 
   return (
-    <Card>
+    <Card
+      className="cursor-pointer transition-colors hover:bg-accent"
+      onClick={() => navigate(`/sources/${source.id}`)}
+    >
       <CardHeader className="flex flex-row items-start justify-between space-y-0">
         <div>
           <CardTitle className="flex items-center gap-2">
@@ -176,19 +181,31 @@ function SourceCard({ source }: { source: Source }) {
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={(e) => e.stopPropagation()}
+            >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={() => regenerateMutation.mutate()}>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.stopPropagation()
+                regenerateMutation.mutate()
+              }}
+            >
               <RefreshCw className="mr-2 h-4 w-4" />
               Regenerate API Key
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
               className="text-destructive"
-              onClick={() => deleteMutation.mutate()}
+              onClick={(e) => {
+                e.stopPropagation()
+                deleteMutation.mutate()
+              }}
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Delete
