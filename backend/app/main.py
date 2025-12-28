@@ -72,8 +72,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     discovered = loader.discover()
     logger.info("plugins_discovered", plugins=discovered)
 
-    # Load plugin settings (from DB or defaults)
-    plugin_settings: dict[str, dict] = {}  # TODO: Load from DB
+    # Load plugin settings from database
+    plugin_settings = await load_plugin_settings_from_db()
+    logger.info(
+        "plugin_settings_loaded",
+        count=len(plugin_settings),
+        plugins=list(plugin_settings.keys()),
+    )
     await loader.load_all(plugin_settings)
 
     # 5. Mount plugin routers
