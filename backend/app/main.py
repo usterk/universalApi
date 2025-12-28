@@ -43,10 +43,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("application_starting", app_name=settings.app_name, environment=settings.app_env)
 
     # Check database migrations before starting
+    logger.info("startup_step", step="database_migration_check", status="starting")
     try:
         await require_migrations(
             engine, fail_on_outdated=settings.require_migrations_on_startup
         )
+        logger.info("startup_step", step="database_migration_check", status="completed")
     except RuntimeError as e:
         logger.error("migration_check_failed", error=str(e))
         raise  # Stop application startup

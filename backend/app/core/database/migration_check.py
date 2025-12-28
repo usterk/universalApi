@@ -5,6 +5,7 @@ It's designed to be called during application startup to prevent cryptic runtime
 errors when migrations haven't been run.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -15,6 +16,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 logger = logging.getLogger(__name__)
+
+# Timeout for database connection during migration check (seconds)
+DB_CONNECTION_TIMEOUT = 30
 
 
 async def check_migration_status(engine: AsyncEngine) -> dict[str, Any]:
@@ -105,8 +109,26 @@ async def require_migrations(
 
     Raises:
         RuntimeError: If migrations are not up to date and fail_on_outdated=True
+        RuntimeError: If database connection times out
     """
-    status = await check_migration_status(engine)
+    logger.info("Checking database migrations...")
+
+    try:
+        status = await asyncio.wait_for(
+            check_migration_status(engine),
+            timeout=DB_CONNECTION_TIMEOUT
+        )
+    except asyncio.TimeoutError:
+        error_msg = (
+            f"❌ DATABASE CONNECTION TIMEOUT!\n"
+            f"Could not connect to database within {DB_CONNECTION_TIMEOUT} seconds.\n"
+            f"Please check:\n"
+            f"  1. PostgreSQL container is running: docker ps\n"
+            f"  2. Database is accepting connections on port 5432\n"
+            f"  3. DATABASE_URL in .env is correct\n"
+        )
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
 
     if not status["alembic_table_exists"]:
         error_msg = (
