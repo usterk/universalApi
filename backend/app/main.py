@@ -178,6 +178,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     )
 
 
+async def load_plugin_settings_from_db() -> dict[str, dict]:
+    """Load plugin settings from database.
+
+    Returns:
+        Dict mapping plugin_name to settings dict.
+        Returns empty dict if no configs exist or on error.
+    """
+    from sqlalchemy import select
+    from app.core.plugins.models import PluginConfig
+
+    logger = get_logger(__name__)
+
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(select(PluginConfig))
+            configs = result.scalars().all()
+
+            settings: dict[str, dict] = {}
+            for config in configs:
+                settings[config.plugin_name] = config.settings or {}
+
+            logger.info(
+                "plugin_settings_loaded_from_db",
+                plugin_count=len(settings),
+                plugins=list(settings.keys()),
+            )
+            return settings
+    except Exception as e:
+        logger.warning(
+            "plugin_settings_load_failed",
+            error=str(e),
+            fallback="using_empty_settings",
+        )
+        return {}
+
+
 async def _wait_for_running_jobs(event_bus: EventBus, timeout: int) -> None:
     """Wait for running jobs to complete with timeout.
 
