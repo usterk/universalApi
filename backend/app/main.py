@@ -43,10 +43,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("application_starting", app_name=settings.app_name, environment=settings.app_env)
 
     # Check database migrations before starting
+    logger.info("startup_step", step="database_migration_check", status="starting")
     try:
         await require_migrations(
             engine, fail_on_outdated=settings.require_migrations_on_startup
         )
+        logger.info("startup_step", step="database_migration_check", status="completed")
     except RuntimeError as e:
         logger.error("migration_check_failed", error=str(e))
         raise  # Stop application startup
@@ -72,8 +74,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     discovered = loader.discover()
     logger.info("plugins_discovered", plugins=discovered)
 
-    # Load plugin settings (from DB or defaults)
-    plugin_settings: dict[str, dict] = {}  # TODO: Load from DB
+    # Load plugin settings from database
+    plugin_settings = await load_plugin_settings_from_db()
+    logger.info(
+        "plugin_settings_loaded",
+        count=len(plugin_settings),
+        plugins=list(plugin_settings.keys()),
+    )
     await loader.load_all(plugin_settings)
 
     # 5. Mount plugin routers
@@ -176,6 +183,42 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app_name=settings.app_name,
         shutdown_duration_seconds=elapsed,
     )
+
+
+async def load_plugin_settings_from_db() -> dict[str, dict]:
+    """Load plugin settings from database.
+
+    Returns:
+        Dict mapping plugin_name to settings dict.
+        Returns empty dict if no configs exist or on error.
+    """
+    from sqlalchemy import select
+    from app.core.plugins.models import PluginConfig
+
+    logger = get_logger(__name__)
+
+    try:
+        async with async_session_factory() as session:
+            result = await session.execute(select(PluginConfig))
+            configs = result.scalars().all()
+
+            settings: dict[str, dict] = {}
+            for config in configs:
+                settings[config.plugin_name] = config.settings or {}
+
+            logger.info(
+                "plugin_settings_loaded_from_db",
+                plugin_count=len(settings),
+                plugins=list(settings.keys()),
+            )
+            return settings
+    except Exception as e:
+        logger.warning(
+            "plugin_settings_load_failed",
+            error=str(e),
+            fallback="using_empty_settings",
+        )
+        return {}
 
 
 async def _wait_for_running_jobs(event_bus: EventBus, timeout: int) -> None:
