@@ -38,6 +38,10 @@ class PluginSettingsUpdate(BaseModel):
     settings: dict
 
 
+class PluginSettingsResponse(BaseModel):
+    settings: dict
+
+
 class PluginFilterCreate(BaseModel):
     filter_type: str
     operator: str
@@ -368,6 +372,24 @@ async def update_plugin_settings(
     await db.commit()
 
     return {"status": "ok", "settings": data.settings}
+
+
+@router.get("/{plugin_name}/settings", response_model=PluginSettingsResponse)
+async def get_plugin_settings(
+    plugin_name: str,
+    current_user: CurrentActiveUser,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> PluginSettingsResponse:
+    """Get plugin settings."""
+    result = await db.execute(
+        select(PluginConfig).where(PluginConfig.plugin_name == plugin_name)
+    )
+    config = result.scalar_one_or_none()
+
+    if config and config.settings:
+        return PluginSettingsResponse(settings=config.settings)
+
+    return PluginSettingsResponse(settings={})
 
 
 @router.get("/{plugin_name}/filters", response_model=list[PluginFilterResponse])
