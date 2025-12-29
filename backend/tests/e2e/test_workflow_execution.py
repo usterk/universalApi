@@ -148,18 +148,19 @@ async def test_full_workflow_execution_audio_transcription(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-async def test_workflow_not_triggered_without_source(
+async def test_manual_upload_creates_manual_source(
     async_client: AsyncClient,
     db_session: AsyncSession,
     test_user,
     auth_headers,
 ):
     """
-    Test that workflow is not triggered for manual uploads (no source).
+    Test that manual uploads (JWT auth) create a 'Manual' system source.
 
-    This verifies the fallback behavior.
+    When users upload files via JWT (not API key), a system 'Manual' source
+    is automatically created for them, with default workflow configuration.
     """
-    # Upload file without source (using user JWT)
+    # Upload file using user JWT (not API key)
     audio_content = b"fake audio content"
     files = {
         "file": ("manual_upload.mp3", io.BytesIO(audio_content), "audio/mpeg"),
@@ -174,14 +175,22 @@ async def test_workflow_not_triggered_without_source(
     upload_data = response.json()
     document_id = upload_data["id"]
 
-    # Verify document created
+    # Verify document created with Manual source
     result = await db_session.execute(
         select(Document).where(Document.id == document_id)
     )
     document = result.scalar_one()
-    assert document.source_id is None  # No source
+    assert document.source_id is not None  # Has Manual source
 
-    # Verify event emitted (but source_id is None)
+    # Verify it's a Manual source
+    result = await db_session.execute(
+        select(Source).where(Source.id == document.source_id)
+    )
+    source = result.scalar_one()
+    assert source.name == "Manual"
+    assert source.properties.get("is_system_source") is True
+
+    # Verify event emitted with Manual source_id
     result = await db_session.execute(
         select(SystemEvent)
         .where(SystemEvent.event_type == "document.created")
@@ -189,10 +198,9 @@ async def test_workflow_not_triggered_without_source(
     )
     event = result.scalar_one_or_none()
     assert event is not None
-    assert event.payload["source_id"] is None
+    assert event.payload["source_id"] == str(source.id)
 
-    # In this case, the default workflow should apply
-    # (all plugins with auto_process=True for audio)
+    # Manual source should have default workflow (user default)
 
 
 @pytest.mark.e2e

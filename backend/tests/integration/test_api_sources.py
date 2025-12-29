@@ -15,7 +15,7 @@ class TestSourcesList:
         async_client: AsyncClient,
         auth_headers: dict,
     ):
-        """Authenticated user should get list of their sources."""
+        """Authenticated user should get paginated list of their sources."""
         response = await async_client.get(
             "/api/v1/sources",
             headers=auth_headers,
@@ -23,7 +23,13 @@ class TestSourcesList:
 
         assert response.status_code == 200
         data = response.json()
-        assert isinstance(data, list)
+        # API returns paginated response
+        assert isinstance(data, dict)
+        assert "items" in data
+        assert isinstance(data["items"], list)
+        assert "total" in data
+        assert "page" in data
+        assert "page_size" in data
 
     async def test_list_sources_unauthenticated(
         self,

@@ -267,8 +267,8 @@ async def test_get_workflow_for_document_with_source(workflow_service, mock_db, 
 
 
 @pytest.mark.asyncio
-async def test_get_workflow_for_document_without_source_uses_default(workflow_service, mock_db, mock_registry):
-    """Test that documents without source_id use default workflow."""
+async def test_get_workflow_for_document_without_source_uses_user_workflow(workflow_service, mock_db, mock_registry):
+    """Test that documents without source_id fall back to user workflow."""
     # Create document WITHOUT source
     doc_type = DocumentType(id=uuid4(), name="audio", display_name="Audio", registered_by="upload")
     document = Document(
@@ -284,13 +284,16 @@ async def test_get_workflow_for_document_without_source_uses_default(workflow_se
     )
     document.document_type = doc_type
 
-    # Get workflow (should use default)
+    # Mock database response - no user workflow configured
+    mock_result = MagicMock()
+    mock_result.scalars.return_value.all.return_value = []
+    mock_db.execute = AsyncMock(return_value=mock_result)
+
+    # Get workflow (falls back to user workflow, which is empty)
     workflow = await workflow_service.get_workflow_for_document(document)
 
-    # Verify default workflow was used
-    assert len(workflow) > 0
-    # Default workflow returns all plugins that handle "audio"
-    assert workflow[0][1].metadata.name == "audio_transcription"
+    # When no source workflow and no user workflow, returns empty list
+    assert len(workflow) == 0
 
 
 @pytest.mark.asyncio
